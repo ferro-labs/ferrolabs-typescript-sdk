@@ -7,6 +7,7 @@ import {
   FerroServerError,
 } from "../errors.js";
 import { VERSION } from "../version.js";
+import type { Logger } from "./logger.js";
 
 export interface HttpClientConfig {
   baseUrl: string;
@@ -15,13 +16,16 @@ export interface HttpClientConfig {
   maxRetries: number;
   defaultHeaders: Record<string, string>;
   fetchFn: typeof globalThis.fetch;
+  logger: Logger;
 }
 
 export class HttpClient {
   private readonly config: HttpClientConfig;
+  private readonly log: Logger;
 
   constructor(config: HttpClientConfig) {
     this.config = config;
+    this.log = config.logger;
   }
 
   async request<T>(
@@ -34,8 +38,15 @@ export class HttpClient {
     const body = options?.json ? JSON.stringify(options.json) : undefined;
 
     let lastError: Error | undefined;
+    const startTime = Date.now();
+
+    this.log.debug("request start", { method, url });
 
     for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {
+      if (attempt > 0) {
+        this.log.debug("request retry", { method, url, attempt });
+      }
+
       const controller = new AbortController();
       const timeoutId = setTimeout(
         () => controller.abort(),
@@ -53,8 +64,21 @@ export class HttpClient {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
+          this.log.warn("request error response", {
+            method,
+            url,
+            status: response.status,
+            elapsed_ms: Date.now() - startTime,
+          });
           await this.handleErrorResponse(response);
         }
+
+        this.log.debug("request complete", {
+          method,
+          url,
+          status: response.status,
+          elapsed_ms: Date.now() - startTime,
+        });
 
         if (response.status === 204) {
           return undefined as T;
@@ -70,22 +94,43 @@ export class HttpClient {
         if (error instanceof FerroAPIError) throw error;
 
         if (this.isRetryable(error) && attempt < this.config.maxRetries) {
+          this.log.warn("request retryable error", {
+            method,
+            url,
+            attempt,
+            error: (error as Error).message,
+          });
           lastError = error as Error;
           continue;
         }
 
         if (this.isAbortError(error)) {
+          this.log.error("request timeout", {
+            method,
+            url,
+            timeout_ms: this.config.timeout,
+          });
           throw new FerroConnectionError(
             `Request timed out after ${this.config.timeout}ms`,
           );
         }
 
+        this.log.error("request connection failed", {
+          method,
+          url,
+          error: (error as Error).message,
+        });
         throw new FerroConnectionError(
           `Connection failed: ${(error as Error).message}`,
         );
       }
     }
 
+    this.log.error("request exhausted retries", {
+      method,
+      url,
+      retries: this.config.maxRetries,
+    });
     throw (
       lastError ?? new FerroConnectionError("Request failed after all retries")
     );
@@ -99,6 +144,8 @@ export class HttpClient {
   ): AsyncGenerator<string> {
     const url = this.buildUrl(path);
     const headers = this.buildHeaders();
+
+    this.log.debug("stream start", { method, url });
 
     const timeoutController = new AbortController();
     const timeoutId = setTimeout(

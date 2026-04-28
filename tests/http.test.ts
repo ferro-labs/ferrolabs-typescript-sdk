@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { HttpClient } from "../src/_internal/http.js";
+import { Logger } from "../src/_internal/logger.js";
 import {
   FerroAPIError,
   FerroAuthError,
@@ -9,6 +10,8 @@ import {
   FerroConnectionError,
 } from "../src/errors.js";
 import { createMockFetch, createErrorFetch } from "./helpers/mock-fetch.js";
+
+const silentLogger = new Logger("none");
 
 function makeClient(
   fetchFn: typeof globalThis.fetch,
@@ -21,6 +24,7 @@ function makeClient(
     maxRetries: overrides?.maxRetries ?? 0,
     defaultHeaders: {},
     fetchFn,
+    logger: silentLogger,
   });
 }
 

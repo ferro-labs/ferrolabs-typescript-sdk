@@ -330,4 +330,6 @@ export interface FerroClientOptions {
   maxRetries?: number;
   defaultHeaders?: Record<string, string>;
   fetch?: typeof globalThis.fetch;
+  /** Enable SDK debug logging. Also configurable via FERRO_LOG_LEVEL env var. */
+  logLevel?: "debug" | "info" | "warn" | "error" | "none";
 }

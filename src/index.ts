@@ -1,6 +1,9 @@
 // Client
 export { FerroClient } from "./client.js";
 
+// Logger
+export type { LogLevel } from "./_internal/logger.js";
+
 // Errors
 export {
   FerroError,

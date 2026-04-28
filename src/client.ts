@@ -1,4 +1,5 @@
 import { HttpClient } from "./_internal/http.js";
+import { Logger, resolveLogLevel } from "./_internal/logger.js";
 import { FerroAuthError } from "./errors.js";
 import { Admin } from "./resources/admin/index.js";
 import { Completions } from "./resources/completions.js";
@@ -26,10 +27,13 @@ export class FerroClient {
     const baseUrl = resolveBaseUrl(options?.baseUrl);
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT;
     const maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES;
+    const logger = new Logger(resolveLogLevel(options?.logLevel));
 
     if (maxRetries < 0 || !Number.isInteger(maxRetries)) {
       throw new Error("maxRetries must be a non-negative integer");
     }
+
+    logger.info("client initialized", { baseUrl, timeout, maxRetries });
 
     this.http = new HttpClient({
       baseUrl,
@@ -40,6 +44,7 @@ export class FerroClient {
         ...options?.defaultHeaders,
       },
       fetchFn: options?.fetch ?? globalThis.fetch,
+      logger,
     });
 
     const completions = new Completions(this.http);
