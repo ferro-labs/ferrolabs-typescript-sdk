@@ -95,12 +95,20 @@ export class HttpClient {
     method: string,
     path: string,
     body: unknown,
+    signal?: AbortSignal,
   ): AsyncGenerator<string> {
     const url = this.buildUrl(path);
     const headers = this.buildHeaders();
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(
+      () => timeoutController.abort(),
+      this.config.timeout,
+    );
+
+    const combinedSignal = signal
+      ? AbortSignal.any([signal, timeoutController.signal])
+      : timeoutController.signal;
 
     let response: Response;
     try {
@@ -108,11 +116,14 @@ export class HttpClient {
         method,
         headers,
         body: JSON.stringify(body),
-        signal: controller.signal,
+        signal: combinedSignal,
       });
     } catch (error) {
       clearTimeout(timeoutId);
       if (this.isAbortError(error)) {
+        if (signal?.aborted) {
+          throw new FerroConnectionError("Stream aborted by caller");
+        }
         throw new FerroConnectionError(
           `Stream timed out after ${this.config.timeout}ms`,
         );
@@ -138,6 +149,8 @@ export class HttpClient {
 
     try {
       while (true) {
+        if (signal?.aborted) break;
+
         const { done, value } = await reader.read();
         if (done) break;
 

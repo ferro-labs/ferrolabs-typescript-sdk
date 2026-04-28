@@ -16,10 +16,12 @@ export class Stream<T> implements AsyncIterable<T> {
     path: string,
     body: unknown,
   ): Stream<T> {
-    const rawLines = httpClient.stream(method, path, body);
+    const controller = new AbortController();
+    const rawLines = httpClient.stream(method, path, body, controller.signal);
 
     async function* parseSSE(): AsyncGenerator<T> {
       for await (const line of rawLines) {
+        if (controller.signal.aborted) return;
         if (!line.startsWith("data: ")) continue;
 
         const payload = line.slice(6).trim();
@@ -33,7 +35,7 @@ export class Stream<T> implements AsyncIterable<T> {
       }
     }
 
-    return new Stream<T>(parseSSE());
+    return new Stream<T>(parseSSE(), controller);
   }
 
   abort(): void {
