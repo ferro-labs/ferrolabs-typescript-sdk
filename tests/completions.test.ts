@@ -182,7 +182,7 @@ describe("Completions", () => {
       });
 
       // Consume the stream to ensure the fetch was actually called
-      for await (const _chunk of result) {
+      for await (const _ of result) { void _;
         // drain
       }
 

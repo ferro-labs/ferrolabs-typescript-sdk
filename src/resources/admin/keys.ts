@@ -42,11 +42,11 @@ export class KeysResource {
   }
 
   async delete(id: string): Promise<void> {
-    await this.http.request<void>("DELETE", `/admin/keys/${id}`);
+    await this.http.request<undefined>("DELETE", `/admin/keys/${id}`);
   }
 
   async revoke(id: string): Promise<void> {
-    await this.http.request<void>("POST", `/admin/keys/${id}/revoke`);
+    await this.http.request<undefined>("POST", `/admin/keys/${id}/revoke`);
   }
 
   async rotate(id: string): Promise<CreatedAPIKey> {

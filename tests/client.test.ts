@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { FerroClient } from "../src/client.js";
 import { FerroAuthError } from "../src/errors.js";
 import { VERSION } from "../src/version.js";

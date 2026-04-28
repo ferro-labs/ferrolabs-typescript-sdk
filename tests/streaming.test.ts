@@ -128,9 +128,7 @@ describe("Stream", () => {
       );
 
       await expect(async () => {
-        for await (const _chunk of stream) {
-          // consume
-        }
+        for await (const _ of stream) { void _; }
       }).rejects.toThrow(/Failed to parse SSE payload/);
     });
 

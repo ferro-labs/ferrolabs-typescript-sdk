@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { HttpClient } from "../src/_internal/http.js";
 import {
   FerroAPIError,
@@ -36,7 +36,7 @@ describe("HttpClient.request", () => {
       const { fetch } = createMockFetch({ status: 204 });
       const client = makeClient(fetch);
 
-      const result = await client.request<void>("DELETE", "/admin/keys/k1");
+      const result = await client.request<undefined>("DELETE", "/admin/keys/k1");
       expect(result).toBeUndefined();
     });
 
