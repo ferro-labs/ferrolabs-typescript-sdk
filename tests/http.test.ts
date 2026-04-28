@@ -1,0 +1,250 @@
+import { describe, it, expect, vi } from "vitest";
+import { HttpClient } from "../src/_internal/http.js";
+import {
+  FerroAPIError,
+  FerroAuthError,
+  FerroRateLimitError,
+  FerroNotFoundError,
+  FerroServerError,
+  FerroConnectionError,
+} from "../src/errors.js";
+import { createMockFetch, createErrorFetch } from "./helpers/mock-fetch.js";
+
+function makeClient(fetchFn: typeof globalThis.fetch, overrides?: Partial<{ maxRetries: number; timeout: number }>) {
+  return new HttpClient({
+    baseUrl: "http://localhost:8080",
+    apiKey: "sk-test",
+    timeout: overrides?.timeout ?? 30_000,
+    maxRetries: overrides?.maxRetries ?? 0,
+    defaultHeaders: {},
+    fetchFn,
+  });
+}
+
+describe("HttpClient.request", () => {
+  describe("successful requests", () => {
+    it("returns parsed JSON for 200 responses", async () => {
+      const payload = { id: "chat-1", object: "chat.completion" };
+      const { fetch } = createMockFetch({ json: payload });
+      const client = makeClient(fetch);
+
+      const result = await client.request<typeof payload>("GET", "/v1/models");
+      expect(result).toEqual(payload);
+    });
+
+    it("returns undefined for 204 responses", async () => {
+      const { fetch } = createMockFetch({ status: 204 });
+      const client = makeClient(fetch);
+
+      const result = await client.request<void>("DELETE", "/admin/keys/k1");
+      expect(result).toBeUndefined();
+    });
+
+    it("returns undefined for empty response body", async () => {
+      const { fetch } = createMockFetch({ text: "" });
+      const client = makeClient(fetch);
+
+      const result = await client.request<unknown>("POST", "/v1/test");
+      expect(result).toBeUndefined();
+    });
+
+    it("sends correct Authorization header", async () => {
+      const { fetch, captured } = createMockFetch({ json: {} });
+      const client = makeClient(fetch);
+
+      await client.request("GET", "/v1/models");
+      expect(captured[0]!.headers["Authorization"]).toBe("Bearer sk-test");
+    });
+
+    it("sends correct Content-Type header", async () => {
+      const { fetch, captured } = createMockFetch({ json: {} });
+      const client = makeClient(fetch);
+
+      await client.request("GET", "/v1/models");
+      expect(captured[0]!.headers["Content-Type"]).toBe("application/json");
+    });
+
+    it("sends User-Agent header with SDK version", async () => {
+      const { fetch, captured } = createMockFetch({ json: {} });
+      const client = makeClient(fetch);
+
+      await client.request("GET", "/v1/models");
+      expect(captured[0]!.headers["User-Agent"]).toMatch(/^ferrolabsai-typescript\//);
+    });
+
+    it("sends JSON body for POST requests", async () => {
+      const { fetch, captured } = createMockFetch({ json: {} });
+      const client = makeClient(fetch);
+
+      await client.request("POST", "/v1/chat/completions", {
+        json: { model: "gpt-4", messages: [] },
+      });
+
+      expect(captured[0]!.body).toEqual({ model: "gpt-4", messages: [] });
+    });
+  });
+
+  describe("query params", () => {
+    it("appends query params to URL", async () => {
+      const { fetch, captured } = createMockFetch({ json: [] });
+      const client = makeClient(fetch);
+
+      await client.request("GET", "/v1/models", {
+        params: { provider: "openai", capability: "chat" },
+      });
+
+      const url = captured[0]!.url;
+      expect(url).toContain("provider=openai");
+      expect(url).toContain("capability=chat");
+    });
+  });
+
+  describe("error responses", () => {
+    it("throws FerroAuthError on 401", async () => {
+      const { fetch } = createMockFetch({
+        status: 401,
+        json: { error: { message: "Invalid API key" } },
+      });
+      const client = makeClient(fetch);
+
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(FerroAuthError);
+    });
+
+    it("throws FerroRateLimitError on 429", async () => {
+      const { fetch } = createMockFetch({
+        status: 429,
+        json: { error: { message: "Rate limited" } },
+      });
+      const client = makeClient(fetch);
+
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(FerroRateLimitError);
+    });
+
+    it("throws FerroNotFoundError on 404", async () => {
+      const { fetch } = createMockFetch({
+        status: 404,
+        json: { error: { message: "Model not found" } },
+      });
+      const client = makeClient(fetch);
+
+      await expect(client.request("GET", "/v1/models/nonexistent")).rejects.toThrow(FerroNotFoundError);
+    });
+
+    it("throws FerroServerError on 500", async () => {
+      const { fetch } = createMockFetch({
+        status: 500,
+        json: { error: { message: "Internal server error" } },
+      });
+      const client = makeClient(fetch);
+
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(FerroServerError);
+    });
+
+    it("throws FerroServerError on 502", async () => {
+      const { fetch } = createMockFetch({
+        status: 502,
+        json: { error: { message: "Bad gateway" } },
+      });
+      const client = makeClient(fetch);
+
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(FerroServerError);
+    });
+
+    it("throws FerroAPIError with status and code for 400", async () => {
+      const { fetch } = createMockFetch({
+        status: 400,
+        json: { error: { message: "Invalid model", code: "invalid_model" } },
+      });
+      const client = makeClient(fetch);
+
+      try {
+        await client.request("GET", "/v1/models");
+        expect.unreachable("should have thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(FerroAPIError);
+        const apiErr = err as FerroAPIError;
+        expect(apiErr.status).toBe(400);
+        expect(apiErr.code).toBe("invalid_model");
+      }
+    });
+
+    it("parses error message from body.error.message", async () => {
+      const { fetch } = createMockFetch({
+        status: 400,
+        json: { error: { message: "Model param is required" } },
+      });
+      const client = makeClient(fetch);
+
+      try {
+        await client.request("GET", "/v1/models");
+        expect.unreachable("should have thrown");
+      } catch (err) {
+        expect((err as FerroAPIError).message).toBe("Model param is required");
+      }
+    });
+
+    it("extracts request_id from response headers", async () => {
+      const { fetch } = createMockFetch({
+        status: 400,
+        json: { error: { message: "fail" } },
+        headers: { "x-request-id": "req-header-id" },
+      });
+      const client = makeClient(fetch);
+
+      try {
+        await client.request("GET", "/v1/models");
+        expect.unreachable("should have thrown");
+      } catch (err) {
+        expect((err as FerroAPIError).requestId).toBe("req-header-id");
+      }
+    });
+
+    it("extracts x-ferro-request-id from response headers", async () => {
+      const { fetch } = createMockFetch({
+        status: 400,
+        json: { error: { message: "fail" } },
+        headers: { "x-ferro-request-id": "ferro-req-id" },
+      });
+      const client = makeClient(fetch);
+
+      try {
+        await client.request("GET", "/v1/models");
+        expect.unreachable("should have thrown");
+      } catch (err) {
+        expect((err as FerroAPIError).requestId).toBe("ferro-req-id");
+      }
+    });
+
+    it("HTTP errors are NOT retried", async () => {
+      const { fetch } = createMockFetch({
+        status: 500,
+        json: { error: { message: "Internal error" } },
+      });
+      const client = makeClient(fetch, { maxRetries: 3 });
+
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(FerroServerError);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("network errors and retries", () => {
+    it("retries on network error up to maxRetries then throws FerroConnectionError", async () => {
+      const networkError = new TypeError("fetch failed");
+      const fetchFn = createErrorFetch(networkError);
+      const client = makeClient(fetchFn, { maxRetries: 2 });
+
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(FerroConnectionError);
+      // Initial attempt + 2 retries = 3 calls
+      expect(fetchFn).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not retry when maxRetries is 0", async () => {
+      const networkError = new TypeError("fetch failed");
+      const fetchFn = createErrorFetch(networkError);
+      const client = makeClient(fetchFn, { maxRetries: 0 });
+
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(FerroConnectionError);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+  });
+});
