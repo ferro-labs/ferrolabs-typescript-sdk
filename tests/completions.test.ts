@@ -153,10 +153,7 @@ describe("Completions", () => {
       };
 
       const { fetch } = createMockFetch({
-        stream: [
-          `data: ${JSON.stringify(chunk)}`,
-          "data: [DONE]",
-        ],
+        stream: [`data: ${JSON.stringify(chunk)}`, "data: [DONE]"],
       });
       const client = makeClient(fetch);
 
@@ -182,7 +179,8 @@ describe("Completions", () => {
       });
 
       // Consume the stream to ensure the fetch was actually called
-      for await (const _ of result) { void _;
+      for await (const _ of result) {
+        void _;
         // drain
       }
 

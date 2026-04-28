@@ -26,21 +26,17 @@ export class ConfigResource {
   async create(
     config: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    return this.http.request<Record<string, unknown>>(
-      "POST",
-      "/admin/config",
-      { json: config },
-    );
+    return this.http.request<Record<string, unknown>>("POST", "/admin/config", {
+      json: config,
+    });
   }
 
   async update(
     config: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    return this.http.request<Record<string, unknown>>(
-      "PUT",
-      "/admin/config",
-      { json: config },
-    );
+    return this.http.request<Record<string, unknown>>("PUT", "/admin/config", {
+      json: config,
+    });
   }
 
   async delete(): Promise<Record<string, unknown>> {
@@ -55,7 +51,7 @@ export class ConfigResource {
       { data: ConfigHistoryEntry[] } | ConfigHistoryEntry[]
     >("GET", "/admin/config/history");
 
-    return Array.isArray(data) ? data : data.data ?? [];
+    return Array.isArray(data) ? data : (data.data ?? []);
   }
 
   async rollback(version: number): Promise<Record<string, unknown>> {

@@ -59,7 +59,9 @@ function resolveApiKey(explicit?: string): string {
   if (explicit) return explicit;
 
   const env =
-    typeof process !== "undefined" ? process.env : ({} as Record<string, string | undefined>);
+    typeof process !== "undefined"
+      ? process.env
+      : ({} as Record<string, string | undefined>);
 
   const ferroKey = env["FERRO_API_KEY"];
   if (ferroKey) return ferroKey;
@@ -76,7 +78,9 @@ function resolveBaseUrl(explicit?: string): string {
   if (explicit) return explicit.replace(/\/+$/, "");
 
   const env =
-    typeof process !== "undefined" ? process.env : ({} as Record<string, string | undefined>);
+    typeof process !== "undefined"
+      ? process.env
+      : ({} as Record<string, string | undefined>);
 
   const ferroUrl = env["FERRO_BASE_URL"];
   if (ferroUrl) return ferroUrl.replace(/\/+$/, "");

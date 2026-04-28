@@ -22,7 +22,9 @@ function makeClient(fetchFn: typeof globalThis.fetch) {
 describe("Embeddings", () => {
   describe("create", () => {
     it("sends correct body with required params", async () => {
-      const { fetch, captured } = createMockFetch({ json: MOCK_EMBEDDING_RESPONSE });
+      const { fetch, captured } = createMockFetch({
+        json: MOCK_EMBEDDING_RESPONSE,
+      });
       const client = makeClient(fetch);
 
       const result = await client.embeddings.create({
@@ -42,7 +44,9 @@ describe("Embeddings", () => {
     });
 
     it("sends array input", async () => {
-      const { fetch, captured } = createMockFetch({ json: MOCK_EMBEDDING_RESPONSE });
+      const { fetch, captured } = createMockFetch({
+        json: MOCK_EMBEDDING_RESPONSE,
+      });
       const client = makeClient(fetch);
 
       await client.embeddings.create({
@@ -55,7 +59,9 @@ describe("Embeddings", () => {
     });
 
     it("only includes optional params when set", async () => {
-      const { fetch, captured } = createMockFetch({ json: MOCK_EMBEDDING_RESPONSE });
+      const { fetch, captured } = createMockFetch({
+        json: MOCK_EMBEDDING_RESPONSE,
+      });
       const client = makeClient(fetch);
 
       await client.embeddings.create({
@@ -70,7 +76,9 @@ describe("Embeddings", () => {
     });
 
     it("includes encoding_format and dimensions when provided", async () => {
-      const { fetch, captured } = createMockFetch({ json: MOCK_EMBEDDING_RESPONSE });
+      const { fetch, captured } = createMockFetch({
+        json: MOCK_EMBEDDING_RESPONSE,
+      });
       const client = makeClient(fetch);
 
       await client.embeddings.create({

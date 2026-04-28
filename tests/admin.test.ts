@@ -147,7 +147,9 @@ describe("Admin Keys", () => {
       const { fetch, captured } = createMockFetch({ json: updatedKey });
       const client = makeClient(fetch);
 
-      const result = await client.admin.keys.update("key-1", { name: "Updated" });
+      const result = await client.admin.keys.update("key-1", {
+        name: "Updated",
+      });
       expect(result).toEqual(updatedKey);
       expect(captured[0]!.method).toBe("PUT");
       expect(captured[0]!.url).toContain("/admin/keys/key-1");
@@ -308,7 +310,9 @@ describe("Admin Config", () => {
 
   describe("rollback", () => {
     it("calls POST /admin/config/rollback/:version", async () => {
-      const { fetch, captured } = createMockFetch({ json: { rolled_back: true } });
+      const { fetch, captured } = createMockFetch({
+        json: { rolled_back: true },
+      });
       const client = makeClient(fetch);
 
       await client.admin.config.rollback(3);

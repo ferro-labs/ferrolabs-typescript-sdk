@@ -17,7 +17,8 @@ export class Images {
     if (params.n !== undefined) body["n"] = params.n;
     if (params.size !== undefined) body["size"] = params.size;
     if (params.quality !== undefined) body["quality"] = params.quality;
-    if (params.response_format !== undefined) body["response_format"] = params.response_format;
+    if (params.response_format !== undefined)
+      body["response_format"] = params.response_format;
     if (params.style !== undefined) body["style"] = params.style;
     if (params.user !== undefined) body["user"] = params.user;
 

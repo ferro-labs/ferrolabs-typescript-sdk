@@ -12,6 +12,6 @@ export class ProvidersResource {
       { data: Record<string, unknown>[] } | Record<string, unknown>[]
     >("GET", "/admin/providers");
 
-    return Array.isArray(data) ? data : data.data ?? [];
+    return Array.isArray(data) ? data : (data.data ?? []);
   }
 }

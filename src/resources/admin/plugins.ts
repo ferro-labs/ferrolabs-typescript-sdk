@@ -12,6 +12,6 @@ export class PluginsResource {
       { data: Record<string, unknown>[] } | Record<string, unknown>[]
     >("GET", "/admin/plugins");
 
-    return Array.isArray(data) ? data : data.data ?? [];
+    return Array.isArray(data) ? data : (data.data ?? []);
   }
 }

@@ -19,7 +19,9 @@ function makeClient(fetchFn: typeof globalThis.fetch) {
 describe("Images", () => {
   describe("generate", () => {
     it("sends correct body with required params", async () => {
-      const { fetch, captured } = createMockFetch({ json: MOCK_IMAGE_RESPONSE });
+      const { fetch, captured } = createMockFetch({
+        json: MOCK_IMAGE_RESPONSE,
+      });
       const client = makeClient(fetch);
 
       const result = await client.images.generate({
@@ -39,7 +41,9 @@ describe("Images", () => {
     });
 
     it("only includes optional params when set", async () => {
-      const { fetch, captured } = createMockFetch({ json: MOCK_IMAGE_RESPONSE });
+      const { fetch, captured } = createMockFetch({
+        json: MOCK_IMAGE_RESPONSE,
+      });
       const client = makeClient(fetch);
 
       await client.images.generate({
@@ -57,7 +61,9 @@ describe("Images", () => {
     });
 
     it("includes optional params when provided", async () => {
-      const { fetch, captured } = createMockFetch({ json: MOCK_IMAGE_RESPONSE });
+      const { fetch, captured } = createMockFetch({
+        json: MOCK_IMAGE_RESPONSE,
+      });
       const client = makeClient(fetch);
 
       await client.images.generate({

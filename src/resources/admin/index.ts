@@ -31,9 +31,6 @@ export class Admin {
   }
 
   async health(): Promise<Record<string, unknown>> {
-    return this.http.request<Record<string, unknown>>(
-      "GET",
-      "/admin/health",
-    );
+    return this.http.request<Record<string, unknown>>("GET", "/admin/health");
   }
 }

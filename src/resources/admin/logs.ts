@@ -14,8 +14,10 @@ export class LogsResource {
 
   async list(params?: LogListParams): Promise<Record<string, unknown>> {
     const queryParams: Record<string, string> = {};
-    if (params?.limit !== undefined) queryParams["limit"] = String(params.limit);
-    if (params?.offset !== undefined) queryParams["offset"] = String(params.offset);
+    if (params?.limit !== undefined)
+      queryParams["limit"] = String(params.limit);
+    if (params?.offset !== undefined)
+      queryParams["offset"] = String(params.offset);
     if (params?.stage) queryParams["stage"] = params.stage;
     if (params?.provider) queryParams["provider"] = params.provider;
     if (params?.model) queryParams["model"] = params.model;
@@ -28,7 +30,8 @@ export class LogsResource {
 
   async stats(params?: LogStatsParams): Promise<Record<string, unknown>> {
     const queryParams: Record<string, string> = {};
-    if (params?.limit !== undefined) queryParams["limit"] = String(params.limit);
+    if (params?.limit !== undefined)
+      queryParams["limit"] = String(params.limit);
     if (params?.since) queryParams["since"] = params.since;
     if (params?.stage) queryParams["stage"] = params.stage;
     if (params?.provider) queryParams["provider"] = params.provider;
@@ -48,10 +51,8 @@ export class LogsResource {
     if (params?.provider) queryParams["provider"] = params.provider;
     if (params?.model) queryParams["model"] = params.model;
 
-    return this.http.request<Record<string, unknown>>(
-      "DELETE",
-      "/admin/logs",
-      { params: queryParams },
-    );
+    return this.http.request<Record<string, unknown>>("DELETE", "/admin/logs", {
+      params: queryParams,
+    });
   }
 }

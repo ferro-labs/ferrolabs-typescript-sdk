@@ -96,9 +96,7 @@ describe("Stream", () => {
     });
 
     it("throws FerroStreamError on invalid JSON", async () => {
-      const httpClient = createMockHttpClient([
-        "data: {not valid json",
-      ]);
+      const httpClient = createMockHttpClient(["data: {not valid json"]);
 
       const stream = Stream.fromSSE<unknown>(
         httpClient,
@@ -116,9 +114,7 @@ describe("Stream", () => {
     });
 
     it("throws FerroStreamError with payload info", async () => {
-      const httpClient = createMockHttpClient([
-        "data: broken{json",
-      ]);
+      const httpClient = createMockHttpClient(["data: broken{json"]);
 
       const stream = Stream.fromSSE<unknown>(
         httpClient,
@@ -128,7 +124,9 @@ describe("Stream", () => {
       );
 
       await expect(async () => {
-        for await (const _ of stream) { void _; }
+        for await (const _ of stream) {
+          void _;
+        }
       }).rejects.toThrow(/Failed to parse SSE payload/);
     });
 

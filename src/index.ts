@@ -45,11 +45,7 @@ export type {
 } from "./types.js";
 
 // Types — Images
-export type {
-  ImageGenerateParams,
-  ImageResponse,
-  ImageData,
-} from "./types.js";
+export type { ImageGenerateParams, ImageResponse, ImageData } from "./types.js";
 
 // Types — Models
 export type { ModelListParams, ModelInfo } from "./types.js";

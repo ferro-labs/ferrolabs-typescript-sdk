@@ -87,8 +87,7 @@ export class HttpClient {
     }
 
     throw (
-      lastError ??
-      new FerroConnectionError("Request failed after all retries")
+      lastError ?? new FerroConnectionError("Request failed after all retries")
     );
   }
 
@@ -101,10 +100,7 @@ export class HttpClient {
     const headers = this.buildHeaders();
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(
-      () => controller.abort(),
-      this.config.timeout,
-    );
+    const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
 
     let response: Response;
     try {

@@ -28,9 +28,7 @@ export class Stream<T> implements AsyncIterable<T> {
         try {
           yield JSON.parse(payload) as T;
         } catch {
-          throw new FerroStreamError(
-            `Failed to parse SSE payload: ${payload}`,
-          );
+          throw new FerroStreamError(`Failed to parse SSE payload: ${payload}`);
         }
       }
     }

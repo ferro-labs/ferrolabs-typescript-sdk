@@ -14,7 +14,8 @@ export class Embeddings {
       input: params.input,
     };
 
-    if (params.encoding_format !== undefined) body["encoding_format"] = params.encoding_format;
+    if (params.encoding_format !== undefined)
+      body["encoding_format"] = params.encoding_format;
     if (params.dimensions !== undefined) body["dimensions"] = params.dimensions;
     if (params.user !== undefined) body["user"] = params.user;
 

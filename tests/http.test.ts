@@ -10,7 +10,10 @@ import {
 } from "../src/errors.js";
 import { createMockFetch, createErrorFetch } from "./helpers/mock-fetch.js";
 
-function makeClient(fetchFn: typeof globalThis.fetch, overrides?: Partial<{ maxRetries: number; timeout: number }>) {
+function makeClient(
+  fetchFn: typeof globalThis.fetch,
+  overrides?: Partial<{ maxRetries: number; timeout: number }>,
+) {
   return new HttpClient({
     baseUrl: "http://localhost:8080",
     apiKey: "sk-test",
@@ -36,7 +39,10 @@ describe("HttpClient.request", () => {
       const { fetch } = createMockFetch({ status: 204 });
       const client = makeClient(fetch);
 
-      const result = await client.request<undefined>("DELETE", "/admin/keys/k1");
+      const result = await client.request<undefined>(
+        "DELETE",
+        "/admin/keys/k1",
+      );
       expect(result).toBeUndefined();
     });
 
@@ -69,7 +75,9 @@ describe("HttpClient.request", () => {
       const client = makeClient(fetch);
 
       await client.request("GET", "/v1/models");
-      expect(captured[0]!.headers["User-Agent"]).toMatch(/^ferrolabsai-typescript\//);
+      expect(captured[0]!.headers["User-Agent"]).toMatch(
+        /^ferrolabsai-typescript\//,
+      );
     });
 
     it("sends JSON body for POST requests", async () => {
@@ -107,7 +115,9 @@ describe("HttpClient.request", () => {
       });
       const client = makeClient(fetch);
 
-      await expect(client.request("GET", "/v1/models")).rejects.toThrow(FerroAuthError);
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(
+        FerroAuthError,
+      );
     });
 
     it("throws FerroRateLimitError on 429", async () => {
@@ -117,7 +127,9 @@ describe("HttpClient.request", () => {
       });
       const client = makeClient(fetch);
 
-      await expect(client.request("GET", "/v1/models")).rejects.toThrow(FerroRateLimitError);
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(
+        FerroRateLimitError,
+      );
     });
 
     it("throws FerroNotFoundError on 404", async () => {
@@ -127,7 +139,9 @@ describe("HttpClient.request", () => {
       });
       const client = makeClient(fetch);
 
-      await expect(client.request("GET", "/v1/models/nonexistent")).rejects.toThrow(FerroNotFoundError);
+      await expect(
+        client.request("GET", "/v1/models/nonexistent"),
+      ).rejects.toThrow(FerroNotFoundError);
     });
 
     it("throws FerroServerError on 500", async () => {
@@ -137,7 +151,9 @@ describe("HttpClient.request", () => {
       });
       const client = makeClient(fetch);
 
-      await expect(client.request("GET", "/v1/models")).rejects.toThrow(FerroServerError);
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(
+        FerroServerError,
+      );
     });
 
     it("throws FerroServerError on 502", async () => {
@@ -147,7 +163,9 @@ describe("HttpClient.request", () => {
       });
       const client = makeClient(fetch);
 
-      await expect(client.request("GET", "/v1/models")).rejects.toThrow(FerroServerError);
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(
+        FerroServerError,
+      );
     });
 
     it("throws FerroAPIError with status and code for 400", async () => {
@@ -222,7 +240,9 @@ describe("HttpClient.request", () => {
       });
       const client = makeClient(fetch, { maxRetries: 3 });
 
-      await expect(client.request("GET", "/v1/models")).rejects.toThrow(FerroServerError);
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(
+        FerroServerError,
+      );
       expect(fetch).toHaveBeenCalledTimes(1);
     });
   });
@@ -233,7 +253,9 @@ describe("HttpClient.request", () => {
       const fetchFn = createErrorFetch(networkError);
       const client = makeClient(fetchFn, { maxRetries: 2 });
 
-      await expect(client.request("GET", "/v1/models")).rejects.toThrow(FerroConnectionError);
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(
+        FerroConnectionError,
+      );
       // Initial attempt + 2 retries = 3 calls
       expect(fetchFn).toHaveBeenCalledTimes(3);
     });
@@ -243,7 +265,9 @@ describe("HttpClient.request", () => {
       const fetchFn = createErrorFetch(networkError);
       const client = makeClient(fetchFn, { maxRetries: 0 });
 
-      await expect(client.request("GET", "/v1/models")).rejects.toThrow(FerroConnectionError);
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(
+        FerroConnectionError,
+      );
       expect(fetchFn).toHaveBeenCalledTimes(1);
     });
   });
