@@ -1,5 +1,5 @@
 {
-  "name": "ferrolabsai",
+  "name": "@ferro-labs-ai/sdk",
   "version": "0.1.0",
   "description": "Official TypeScript SDK for Ferro Labs AI Gateway — route LLM requests across 30+ providers with a single OpenAI-compatible API",
   "author": "Ferro Labs <hello@ferrolabs.ai>",

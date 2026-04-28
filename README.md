@@ -6,12 +6,12 @@
     <td align="center"><strong>TypeScript SDK</strong></td>
   </tr></table>
   <p>
-    <a href="https://www.npmjs.com/package/ferrolabsai"><img src="https://img.shields.io/npm/v/ferrolabsai.svg" alt="npm version" /></a>
-    <a href="https://www.npmjs.com/package/ferrolabsai"><img src="https://img.shields.io/node/v/ferrolabsai.svg" alt="Node version" /></a>
+    <a href="https://www.npmjs.com/package/@ferro-labs-ai/sdk"><img src="https://img.shields.io/npm/v/@ferro-labs-ai/sdk.svg" alt="npm version" /></a>
+    <a href="https://www.npmjs.com/package/@ferro-labs-ai/sdk"><img src="https://img.shields.io/node/v/@ferro-labs-ai/sdk.svg" alt="Node version" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" /></a>
     <a href="https://github.com/ferro-labs/ferrolabs-typescript-sdk/actions/workflows/ci.yml"><img src="https://github.com/ferro-labs/ferrolabs-typescript-sdk/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-    <a href="https://www.npmjs.com/package/ferrolabsai"><img src="https://img.shields.io/npm/dm/ferrolabsai.svg" alt="Downloads" /></a>
-    <a href="https://www.npmjs.com/package/ferrolabsai"><img src="https://img.shields.io/npm/types/ferrolabsai.svg" alt="TypeScript" /></a>
+    <a href="https://www.npmjs.com/package/@ferro-labs-ai/sdk"><img src="https://img.shields.io/npm/dm/@ferro-labs-ai/sdk.svg" alt="Downloads" /></a>
+    <a href="https://www.npmjs.com/package/@ferro-labs-ai/sdk"><img src="https://img.shields.io/npm/types/@ferro-labs-ai/sdk.svg" alt="TypeScript" /></a>
   </p>
 </div>
 
@@ -19,7 +19,7 @@ Route LLM requests across **30 providers and 2,500+ models** through a single Op
 Zero code changes to migrate from `openai`. Built on [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway).
 
 ```typescript
-import { FerroClient } from "ferrolabsai";
+import { FerroClient } from "@ferro-labs-ai/sdk";
 
 const client = new FerroClient({ apiKey: "sk-ferro-..." });
 
@@ -41,7 +41,7 @@ console.log(`Handled by: ${response.provider} in ${response.latency_ms}ms`);
 
 ---
 
-## Why ferrolabsai
+## Why Ferro Labs SDK
 
 - **One API for 30 providers.** OpenAI, Anthropic, Google, Groq, Together, Mistral, Cohere, Bedrock, Vertex, Azure, and more — all via a single client.
 - **Drop-in OpenAI replacement.** The surface matches the OpenAI SDK. Change two lines and keep all your existing code.
@@ -78,15 +78,15 @@ console.log(`Handled by: ${response.provider} in ${response.latency_ms}ms`);
 ## Installation
 
 ```bash
-npm install ferrolabsai
+npm install @ferro-labs-ai/sdk
 ```
 
 ```bash
-pnpm add ferrolabsai
+pnpm add @ferro-labs-ai/sdk
 ```
 
 ```bash
-yarn add ferrolabsai
+yarn add @ferro-labs-ai/sdk
 ```
 
 Requires **Node.js 18+** (also works in Bun, Deno, and modern browsers). **Zero runtime dependencies** — uses native `fetch`.
@@ -98,7 +98,7 @@ Requires **Node.js 18+** (also works in Bun, Deno, and modern browsers). **Zero 
 You'll need a running [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway) instance and an API key issued by it.
 
 ```typescript
-import { FerroClient } from "ferrolabsai";
+import { FerroClient } from "@ferro-labs-ai/sdk";
 
 const client = new FerroClient({
   apiKey: "sk-ferro-your-key",
@@ -129,7 +129,7 @@ import OpenAI from "openai";
 const client = new OpenAI({ apiKey: "sk-openai-..." });
 
 // After — all your existing code works unchanged
-import { FerroClient } from "ferrolabsai";
+import { FerroClient } from "@ferro-labs-ai/sdk";
 const client = new FerroClient({ apiKey: "sk-ferro-..." });
 ```
 
@@ -333,7 +333,7 @@ const client = new FerroClient({
 **Bring-your-own fetch** lets you use a custom implementation for testing, proxies, or runtime polyfills:
 
 ```typescript
-import { FerroClient } from "ferrolabsai";
+import { FerroClient } from "@ferro-labs-ai/sdk";
 
 const client = new FerroClient({
   apiKey: "sk-ferro-...",
@@ -353,7 +353,7 @@ import {
   FerroNotFoundError,
   FerroServerError,
   FerroConnectionError,
-} from "ferrolabsai";
+} from "@ferro-labs-ai/sdk";
 
 try {
   const response = await client.chat.completions.create({
@@ -474,7 +474,7 @@ npx tsx examples/basic.ts
 
 ```typescript
 // examples/basic.ts
-import { FerroClient } from "ferrolabsai";
+import { FerroClient } from "@ferro-labs-ai/sdk";
 
 const client = new FerroClient();
 const response = await client.chat.completions.create({
@@ -492,7 +492,7 @@ console.log(`Provider: ${response.provider} | Tokens: ${response.usage?.total_to
 
 ```typescript
 // examples/streaming.ts
-import { FerroClient } from "ferrolabsai";
+import { FerroClient } from "@ferro-labs-ai/sdk";
 
 const client = new FerroClient();
 const stream = await client.chat.completions.create({
@@ -514,7 +514,7 @@ for await (const chunk of stream) {
 
 ```typescript
 // examples/multi-provider.ts — same client, different providers
-import { FerroClient } from "ferrolabsai";
+import { FerroClient } from "@ferro-labs-ai/sdk";
 
 const client = new FerroClient();
 for (const model of ["gpt-4o-mini", "claude-3-5-sonnet-20241022", "llama-3.3-70b-versatile"]) {
@@ -533,7 +533,7 @@ for (const model of ["gpt-4o-mini", "claude-3-5-sonnet-20241022", "llama-3.3-70b
 
 ```typescript
 // examples/tool-calling.ts
-import { FerroClient } from "ferrolabsai";
+import { FerroClient } from "@ferro-labs-ai/sdk";
 
 const client = new FerroClient();
 const response = await client.chat.completions.create({
@@ -566,7 +566,7 @@ for (const call of response.choices[0]?.message.tool_calls ?? []) {
 
 ```typescript
 // examples/embeddings.ts
-import { FerroClient } from "ferrolabsai";
+import { FerroClient } from "@ferro-labs-ai/sdk";
 
 const client = new FerroClient();
 const response = await client.embeddings.create({
@@ -583,7 +583,7 @@ console.log(`Dimensions: ${response.data[0]?.embedding.length}`);
 
 ```typescript
 // examples/image-generation.ts
-import { FerroClient } from "ferrolabsai";
+import { FerroClient } from "@ferro-labs-ai/sdk";
 
 const client = new FerroClient();
 const response = await client.images.generate({
@@ -601,7 +601,7 @@ console.log(response.data[0]?.url);
 
 ```typescript
 // examples/model-catalog.ts
-import { FerroClient } from "ferrolabsai";
+import { FerroClient } from "@ferro-labs-ai/sdk";
 
 const client = new FerroClient();
 const models = await client.models.list();
@@ -621,7 +621,7 @@ console.log(`Context: ${info.context_window?.toLocaleString()} tokens`);
 
 ```typescript
 // examples/error-handling.ts
-import { FerroClient, FerroAuthError, FerroRateLimitError, FerroServerError } from "ferrolabsai";
+import { FerroClient, FerroAuthError, FerroRateLimitError, FerroServerError } from "@ferro-labs-ai/sdk";
 
 const client = new FerroClient();
 try {
@@ -643,7 +643,7 @@ try {
 
 ```typescript
 // examples/admin-keys.ts
-import { FerroClient } from "ferrolabsai";
+import { FerroClient } from "@ferro-labs-ai/sdk";
 
 const client = new FerroClient();
 const newKey = await client.admin.keys.create({ name: "backend-svc", scopes: ["read_only"] });
@@ -661,7 +661,7 @@ await client.admin.keys.delete(newKey.id);
 
 ```typescript
 // examples/admin-config.ts
-import { FerroClient } from "ferrolabsai";
+import { FerroClient } from "@ferro-labs-ai/sdk";
 
 const client = new FerroClient();
 const config = await client.admin.config.get();
