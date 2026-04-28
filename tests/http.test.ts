@@ -70,7 +70,17 @@ describe("HttpClient.request", () => {
       expect(captured[0]!.headers["Content-Type"]).toBe("application/json");
     });
 
-    it("sends User-Agent header with SDK version", async () => {
+    it("sends X-Ferro-Client header with SDK version", async () => {
+      const { fetch, captured } = createMockFetch({ json: {} });
+      const client = makeClient(fetch);
+
+      await client.request("GET", "/v1/models");
+      expect(captured[0]!.headers["X-Ferro-Client"]).toMatch(
+        /^ferrolabsai-typescript\//,
+      );
+    });
+
+    it("sends User-Agent in Node-like environments", async () => {
       const { fetch, captured } = createMockFetch({ json: {} });
       const client = makeClient(fetch);
 

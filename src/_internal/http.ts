@@ -168,12 +168,18 @@ export class HttpClient {
   }
 
   private buildHeaders(): Record<string, string> {
-    return {
+    const headers: Record<string, string> = {
       Authorization: `Bearer ${this.config.apiKey}`,
       "Content-Type": "application/json",
-      "User-Agent": `ferrolabsai-typescript/${VERSION}`,
+      "X-Ferro-Client": `ferrolabsai-typescript/${VERSION}`,
       ...this.config.defaultHeaders,
     };
+
+    if (typeof process !== "undefined" && process.versions?.node) {
+      headers["User-Agent"] = `ferrolabsai-typescript/${VERSION}`;
+    }
+
+    return headers;
   }
 
   private async handleErrorResponse(response: Response): Promise<never> {
