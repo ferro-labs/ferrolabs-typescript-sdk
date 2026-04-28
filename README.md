@@ -69,6 +69,7 @@ console.log(`Handled by: ${response.provider} in ${response.latency_ms}ms`);
 - [Configuration](#configuration)
 - [Error handling](#error-handling)
 - [Admin API (OSS gateway)](#admin-api-oss-gateway)
+- [Examples](#examples)
 - [Development](#development)
 - [License](#license)
 
@@ -456,6 +457,226 @@ const plugins   = await client.admin.plugins.list();   // installed gateway plug
 const dashboard = await client.admin.dashboard();       // high-level counts
 const health    = await client.admin.health();          // gateway health check
 ```
+
+---
+
+## Examples
+
+Runnable examples in the [`examples/`](examples/) directory. Run any with `npx tsx`:
+
+```bash
+export FERRO_API_KEY=sk-ferro-...
+npx tsx examples/basic.ts
+```
+
+<details>
+<summary><strong>Basic chat completion</strong></summary>
+
+```typescript
+// examples/basic.ts
+import { FerroClient } from "ferrolabsai";
+
+const client = new FerroClient();
+const response = await client.chat.completions.create({
+  model: "gpt-4o-mini",
+  messages: [{ role: "user", content: "Hello, tell me a short joke." }],
+});
+console.log(response.choices[0]?.message.content);
+console.log(`Provider: ${response.provider} | Tokens: ${response.usage?.total_tokens}`);
+```
+
+</details>
+
+<details>
+<summary><strong>Streaming</strong></summary>
+
+```typescript
+// examples/streaming.ts
+import { FerroClient } from "ferrolabsai";
+
+const client = new FerroClient();
+const stream = await client.chat.completions.create({
+  model: "gpt-4o-mini",
+  messages: [{ role: "user", content: "Write a haiku about distributed systems." }],
+  stream: true,
+});
+
+for await (const chunk of stream) {
+  const content = chunk.choices[0]?.delta?.content;
+  if (content) process.stdout.write(content);
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Multi-provider routing</strong></summary>
+
+```typescript
+// examples/multi-provider.ts — same client, different providers
+import { FerroClient } from "ferrolabsai";
+
+const client = new FerroClient();
+for (const model of ["gpt-4o-mini", "claude-3-5-sonnet-20241022", "llama-3.3-70b-versatile"]) {
+  const r = await client.chat.completions.create({
+    model,
+    messages: [{ role: "user", content: "Say hello in 5 words." }],
+  });
+  console.log(`[${r.provider}] ${model} → ${r.choices[0]?.message.content}`);
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Tool / function calling</strong></summary>
+
+```typescript
+// examples/tool-calling.ts
+import { FerroClient } from "ferrolabsai";
+
+const client = new FerroClient();
+const response = await client.chat.completions.create({
+  model: "gpt-4o-mini",
+  messages: [{ role: "user", content: "What's the weather in SF?" }],
+  tools: [{
+    type: "function",
+    function: {
+      name: "get_weather",
+      description: "Get current weather for a location.",
+      parameters: {
+        type: "object",
+        properties: { location: { type: "string" } },
+        required: ["location"],
+      },
+    },
+  }],
+  tool_choice: "auto",
+});
+
+for (const call of response.choices[0]?.message.tool_calls ?? []) {
+  console.log(`Tool: ${call.function.name}(${call.function.arguments})`);
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Embeddings</strong></summary>
+
+```typescript
+// examples/embeddings.ts
+import { FerroClient } from "ferrolabsai";
+
+const client = new FerroClient();
+const response = await client.embeddings.create({
+  model: "text-embedding-3-small",
+  input: ["Ferro routes LLM requests", "across 30 providers"],
+});
+console.log(`Dimensions: ${response.data[0]?.embedding.length}`);
+```
+
+</details>
+
+<details>
+<summary><strong>Image generation</strong></summary>
+
+```typescript
+// examples/image-generation.ts
+import { FerroClient } from "ferrolabsai";
+
+const client = new FerroClient();
+const response = await client.images.generate({
+  model: "dall-e-3",
+  prompt: "A futuristic AI gateway routing data streams",
+  size: "1024x1024",
+});
+console.log(response.data[0]?.url);
+```
+
+</details>
+
+<details>
+<summary><strong>Model catalog</strong></summary>
+
+```typescript
+// examples/model-catalog.ts
+import { FerroClient } from "ferrolabsai";
+
+const client = new FerroClient();
+const models = await client.models.list();
+console.log(`Total: ${models.length} models`);
+
+const anthropic = await client.models.list({ provider: "anthropic" });
+console.log(`Anthropic: ${anthropic.length} models`);
+
+const info = await client.models.retrieve("gpt-4o");
+console.log(`Context: ${info.context_window?.toLocaleString()} tokens`);
+```
+
+</details>
+
+<details>
+<summary><strong>Error handling</strong></summary>
+
+```typescript
+// examples/error-handling.ts
+import { FerroClient, FerroAuthError, FerroRateLimitError, FerroServerError } from "ferrolabsai";
+
+const client = new FerroClient();
+try {
+  await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [{ role: "user", content: "Hello" }],
+  });
+} catch (error) {
+  if (error instanceof FerroAuthError) console.error("Bad API key");
+  else if (error instanceof FerroRateLimitError) console.error("Rate limited");
+  else if (error instanceof FerroServerError) console.error(`Server error: ${error.status}`);
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Admin: API key management</strong></summary>
+
+```typescript
+// examples/admin-keys.ts
+import { FerroClient } from "ferrolabsai";
+
+const client = new FerroClient();
+const newKey = await client.admin.keys.create({ name: "backend-svc", scopes: ["read_only"] });
+console.log(`Key: ${newKey.key}`); // shown once
+
+const keys = await client.admin.keys.list();
+await client.admin.keys.rotate(newKey.id);
+await client.admin.keys.delete(newKey.id);
+```
+
+</details>
+
+<details>
+<summary><strong>Admin: Gateway config</strong></summary>
+
+```typescript
+// examples/admin-config.ts
+import { FerroClient } from "ferrolabsai";
+
+const client = new FerroClient();
+const config = await client.admin.config.get();
+console.log("Strategy:", config.strategy);
+
+await client.admin.config.update({
+  strategy: { mode: "fallback" },
+  targets: [{ virtual_key: "openai" }, { virtual_key: "anthropic" }],
+});
+
+const history = await client.admin.config.history();
+await client.admin.config.rollback(history[0]!.version);
+```
+
+</details>
 
 ---
 
