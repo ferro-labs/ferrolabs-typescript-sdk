@@ -154,6 +154,29 @@ const ferro = createOpenAI({
 
 ### LangChain.js
 
+The SDK ships a native `FerroChatModel` via the `@ferro-labs-ai/sdk/langchain`
+sub-export. It surfaces Ferro metadata (`trace_id`, `provider`, `latency_ms`,
+`cost_usd`) in `response_metadata` — the canonical join key for observability
+bridges — which the generic `ChatOpenAI` adapter cannot expose. Install
+`@langchain/core` (an optional peer dependency) alongside the SDK.
+
+```typescript
+import { FerroChatModel } from "@ferro-labs-ai/sdk/langchain";
+import { HumanMessage } from "@langchain/core/messages";
+
+const llm = new FerroChatModel({
+  model: "gpt-4o",
+  apiKey: "sk-ferro-your-key",
+  baseUrl: "http://localhost:8080",
+});
+
+const res = await llm.invoke([new HumanMessage("Hello")]);
+console.log(res.content);
+console.log(res.response_metadata.trace_id); // Ferro request ID
+```
+
+You can also point any OpenAI-compatible LangChain model at the gateway:
+
 ```typescript
 import { ChatOpenAI } from "@langchain/openai";
 
