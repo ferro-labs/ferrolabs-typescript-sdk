@@ -22,6 +22,10 @@ npm run typecheck
 npm run build
 ```
 
+## Releases
+
+Release PRs must update the package version, lockfile, runtime version constant, and changelog together. See the [README release checklist](README.md#release-checklist) before tagging; the current workflow publishes to npm from pushed `v*` tags, but GitHub Releases are created manually after npm publish succeeds.
+
 ## Adding Features
 
 1. Add types to `src/types.ts`
