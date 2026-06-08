@@ -714,42 +714,7 @@ npm test              # vitest (all HTTP is mocked — no gateway needed)
 npm run build         # tsup → dist/ (ESM + CJS + declarations)
 ```
 
-The test suite runs against mocked fetch, so no network or running gateway is required.
-
-### Release checklist
-
-The `Publish to npm` workflow runs when a `v*` tag is pushed. It publishes the package to npm only; it does not create the GitHub Release entry.
-
-Before merging a release PR:
-
-- Update `package.json`, `package-lock.json`, and `src/version.ts` to the target version.
-- Update `CHANGELOG.md` with the release date and compare links.
-- Run `npm test`, `npm run lint`, `npm run build`, and `npm pack --dry-run --json`.
-- Confirm the repository `NPM_TOKEN` secret is an npm Automation token for the package scope, or replace the workflow with npm Trusted Publishing before tagging. CI cannot answer npm OTP prompts.
-
-To release:
-
-1. Merge the release PR into `main`.
-2. Create a signed annotated tag on the `main` merge commit:
-
-   ```bash
-   git tag -s v0.2.0 <merge-sha> -m "v0.2.0 - release @ferro-labs-ai/sdk 0.2.0"
-   git push origin v0.2.0
-   ```
-
-3. Wait for the `Publish to npm` workflow to pass.
-4. Verify npm:
-
-   ```bash
-   npm view @ferro-labs-ai/sdk dist-tags version --json
-   ```
-
-5. Create the GitHub Release for the tag using the changelog notes, and mark it as the latest release.
-
-Release troubleshooting:
-
-- `E404 Not Found - PUT ...` after the package already exists usually means the CI token is missing, stale, or lacks publish permission for the scope.
-- `EOTP` means npm accepted the token but still requires a one-time password. Use an npm Automation token for CI, or configure Trusted Publishing.
+All 139 tests run in under a second against mocked fetch, so no network or running gateway is required.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
