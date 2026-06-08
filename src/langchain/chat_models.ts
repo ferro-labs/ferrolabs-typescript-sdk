@@ -348,7 +348,7 @@ function extractToolCallChunks(chunk: ChatCompletionChunk): ToolCallChunk[] {
   return raw.map((call, index) => ({
     type: "tool_call_chunk",
     id: call.id || undefined,
-    index,
+    index: call.index ?? index,
     name: call.function?.name || undefined,
     args: call.function?.arguments || undefined,
   }));

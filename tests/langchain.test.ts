@@ -154,6 +154,45 @@ describe("FerroChatModel", () => {
       },
     ]);
   });
+  it("preserves raw tool call indices while streaming", async () => {
+    const chunk = {
+      id: "chunk-1",
+      object: "chat.completion.chunk",
+      created: 1,
+      model: "gpt-4o",
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              {
+                index: 2,
+                id: "call-2",
+                type: "function",
+                function: {
+                  name: "lookup",
+                  arguments: '{"id":"abc"}',
+                },
+              },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    };
+    const { fetch } = createMockFetch({
+      stream: ["data: " + JSON.stringify(chunk), "data: [DONE]"],
+    });
+    const model = makeModel(fetch);
+
+    const stream = await model.stream([new HumanMessage("Use a tool")]);
+    const chunks = [];
+    for await (const streamedChunk of stream) {
+      chunks.push(streamedChunk);
+    }
+
+    expect(chunks[0]?.tool_call_chunks?.[0]?.index).toBe(2);
+  });
 });
 
 describe("messagesToFerroParams", () => {

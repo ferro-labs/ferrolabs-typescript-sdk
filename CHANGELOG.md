@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.2.0] - 2026-05-08
+## [0.2.0] - 2026-06-08
 
 ### Added
 
@@ -32,5 +32,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - ESM + CJS dual output
 - CI: Node 18/20/22 matrix
 
-[Unreleased]: https://github.com/ferro-labs/ferrolabs-typescript-sdk/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ferro-labs/ferrolabs-typescript-sdk/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ferro-labs/ferrolabs-typescript-sdk/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ferro-labs/ferrolabs-typescript-sdk/releases/tag/v0.1.0
