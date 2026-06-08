@@ -154,6 +154,29 @@ describe("FerroChatModel", () => {
       },
     ]);
   });
+  it("forwards bindTools tools to gateway requests", async () => {
+    const tool = {
+      type: "function",
+      function: {
+        name: "lookup",
+        description: "Lookup a record",
+        parameters: {
+          type: "object",
+          properties: { id: { type: "string" } },
+          required: ["id"],
+        },
+      },
+    } as const;
+    const { fetch, captured } = createMockFetch({ json: completionPayload });
+    const model = makeModel(fetch);
+
+    const bound = model.bindTools([tool]);
+    await bound.invoke([new HumanMessage("Use a tool")]);
+
+    const body = captured[0]?.body as Record<string, unknown>;
+    expect(body.tools).toEqual([tool]);
+  });
+
   it("preserves raw tool call indices while streaming", async () => {
     const chunk = {
       id: "chunk-1",
