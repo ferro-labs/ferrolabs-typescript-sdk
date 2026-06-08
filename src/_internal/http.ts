@@ -87,7 +87,8 @@ export class HttpClient {
         const text = await response.text();
         if (!text) return undefined as T;
 
-        return JSON.parse(text) as T;
+        const parsed = JSON.parse(text);
+        return mergeResponseMetadata(parsed, response) as T;
       } catch (error) {
         clearTimeout(timeoutId);
 
@@ -306,4 +307,65 @@ export class HttpClient {
       (error instanceof Error && error.name === "AbortError")
     );
   }
+}
+
+/**
+ * Copy gateway metadata headers into parsed response bodies.
+ *
+ * The gateway surfaces `trace_id`, `provider`, `cost_usd`, and `latency_ms`
+ * via response headers (frozen contract since ai-gateway v1.1.0), but they are
+ * not always present in the JSON body. This merges header values into the
+ * parsed object so `ChatCompletion.trace_id`, `.provider`, `.latency_ms`, and
+ * `usage.cost_usd` are reliably populated. Body fields stay authoritative when
+ * both sources are present.
+ */
+function mergeResponseMetadata(parsed: unknown, response: Response): unknown {
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return parsed;
+  }
+
+  const data = parsed as Record<string, unknown>;
+
+  const traceId =
+    response.headers.get("x-request-id") ??
+    response.headers.get("x-trace-id") ??
+    response.headers.get("x-ferro-request-id");
+  if (traceId && data["trace_id"] === undefined) {
+    data["trace_id"] = traceId;
+  }
+
+  const provider = response.headers.get("x-ferro-provider");
+  if (provider && data["provider"] === undefined) {
+    data["provider"] = provider;
+  }
+
+  const latencyMs = headerInt(response.headers.get("x-ferro-latency-ms"));
+  if (latencyMs !== undefined && data["latency_ms"] === undefined) {
+    data["latency_ms"] = latencyMs;
+  }
+
+  const costUsd = headerFloat(response.headers.get("x-ferro-cost-usd"));
+  if (costUsd !== undefined) {
+    const usage = data["usage"];
+    if (usage !== null && typeof usage === "object" && !Array.isArray(usage)) {
+      const usageRecord = usage as Record<string, unknown>;
+      if (usageRecord["cost_usd"] === undefined) {
+        usageRecord["cost_usd"] = costUsd;
+      }
+    }
+  }
+
+  return data;
+}
+
+function headerInt(value: string | null): number | undefined {
+  if (value === null || value === "") return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.trunc(n) : undefined;
+}
+
+function headerFloat(value: string | null): number | undefined {
+  if (value === null || value === "") return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
 }

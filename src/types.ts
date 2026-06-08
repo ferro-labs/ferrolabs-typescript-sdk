@@ -100,6 +100,7 @@ export interface ChatMessage {
 
 export interface ToolCall {
   id: string;
+  index?: number;
   type: "function";
   function: { name: string; arguments: string };
 }

@@ -261,6 +261,107 @@ describe("HttpClient.request", () => {
     });
   });
 
+  describe("response metadata merging", () => {
+    it("merges trace_id, provider, latency_ms, and usage.cost_usd from headers", async () => {
+      const { fetch } = createMockFetch({
+        json: {
+          id: "chat-1",
+          object: "chat.completion",
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        },
+        headers: {
+          "x-trace-id": "trace-abc",
+          "x-ferro-provider": "anthropic",
+          "x-ferro-latency-ms": "123",
+          "x-ferro-cost-usd": "0.0042",
+        },
+      });
+      const client = makeClient(fetch);
+
+      const result = await client.request<{
+        trace_id?: string;
+        provider?: string;
+        latency_ms?: number;
+        usage: { cost_usd?: number };
+      }>("POST", "/v1/chat/completions");
+
+      expect(result.trace_id).toBe("trace-abc");
+      expect(result.provider).toBe("anthropic");
+      expect(result.latency_ms).toBe(123);
+      expect(result.usage.cost_usd).toBeCloseTo(0.0042);
+    });
+
+    it("prefers x-request-id over x-trace-id for trace_id", async () => {
+      const { fetch } = createMockFetch({
+        json: { id: "chat-1" },
+        headers: {
+          "x-request-id": "req-primary",
+          "x-trace-id": "trace-secondary",
+        },
+      });
+      const client = makeClient(fetch);
+
+      const result = await client.request<{ trace_id?: string }>(
+        "POST",
+        "/v1/chat/completions",
+      );
+      expect(result.trace_id).toBe("req-primary");
+    });
+
+    it("body fields stay authoritative when both body and headers present", async () => {
+      const { fetch } = createMockFetch({
+        json: {
+          id: "chat-1",
+          trace_id: "body-trace",
+          provider: "openai",
+          usage: { total_tokens: 1, cost_usd: 0.01 },
+        },
+        headers: {
+          "x-trace-id": "header-trace",
+          "x-ferro-provider": "anthropic",
+          "x-ferro-cost-usd": "0.99",
+        },
+      });
+      const client = makeClient(fetch);
+
+      const result = await client.request<{
+        trace_id?: string;
+        provider?: string;
+        usage: { cost_usd?: number };
+      }>("POST", "/v1/chat/completions");
+
+      expect(result.trace_id).toBe("body-trace");
+      expect(result.provider).toBe("openai");
+      expect(result.usage.cost_usd).toBeCloseTo(0.01);
+    });
+
+    it("leaves fields absent when no metadata headers are present", async () => {
+      const { fetch } = createMockFetch({ json: { id: "chat-1" } });
+      const client = makeClient(fetch);
+
+      const result = await client.request<{
+        trace_id?: string;
+        provider?: string;
+        latency_ms?: number;
+      }>("POST", "/v1/chat/completions");
+
+      expect(result.trace_id).toBeUndefined();
+      expect(result.provider).toBeUndefined();
+      expect(result.latency_ms).toBeUndefined();
+    });
+
+    it("does not throw when response body is a non-object (array)", async () => {
+      const { fetch } = createMockFetch({
+        json: [1, 2, 3],
+        headers: { "x-trace-id": "trace-abc" },
+      });
+      const client = makeClient(fetch);
+
+      const result = await client.request<number[]>("GET", "/v1/models");
+      expect(result).toEqual([1, 2, 3]);
+    });
+  });
+
   describe("network errors and retries", () => {
     it("retries on network error up to maxRetries then throws FerroConnectionError", async () => {
       const networkError = new TypeError("fetch failed");

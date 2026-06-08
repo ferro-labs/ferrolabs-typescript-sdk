@@ -4,7 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-06-08
+
+### Added
+
+- LangChain.js adapter exposed via the `@ferro-labs-ai/sdk/langchain` sub-export. `FerroChatModel` extends LangChain's `BaseChatModel`, supports non-streaming (`_generate`) and streaming (`_streamResponseChunks`) generation, tool binding (`bindTools`), and surfaces Ferro metadata (`trace_id`, `provider`, `latency_ms`, `cost_usd`, `cache_hit`) in `response_metadata` plus token counts in `usage_metadata`. `@langchain/core` is an optional peer dependency. Mirrors the `langchain-ferrolabsai` Python adapter.
+
+### Fixed
+
+- Surface gateway metadata on successful responses. `trace_id`, `provider`, and `latency_ms` are now merged from the `x-trace-id` / `x-request-id` / `x-ferro-provider` / `x-ferro-latency-ms` response headers into the parsed body, and `usage.cost_usd` from `x-ferro-cost-usd`. Previously these were only populated when the gateway echoed them in the JSON body. Body fields stay authoritative when both sources are present. Matches the `ferrolabsai` Python SDK behaviour and makes `trace_id` a reliable join key for observability bridges.
+
+## [0.1.0] - 2026-04-28
 
 ### Added
 
@@ -21,3 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Zero runtime dependencies (native fetch)
 - ESM + CJS dual output
 - CI: Node 18/20/22 matrix
+
+[Unreleased]: https://github.com/ferro-labs/ferrolabs-typescript-sdk/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ferro-labs/ferrolabs-typescript-sdk/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/ferro-labs/ferrolabs-typescript-sdk/releases/tag/v0.1.0
