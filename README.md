@@ -795,7 +795,7 @@ npm run build         # tsup → dist/ (ESM + CJS + declarations)
 FERRO_GATEWAY_SOURCE=../ai-gateway ./scripts/with-gateway.sh
 ```
 
-All 214 unit tests run in about a second against mocked fetch, so no network or
+All 213 unit tests run in about a second against mocked fetch, so no network or
 running gateway is required. The 26 contract tests in `tests/contract/` boot a
 real `ferrogw` plus a stub upstream and assert the header/body contract this
 README describes; CI runs them against the pinned gateway tag and `main`.
