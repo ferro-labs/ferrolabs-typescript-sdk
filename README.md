@@ -46,7 +46,7 @@ console.log(`Handled by ${response.provider}, trace ${response.trace_id}`);
 - **One API for 30 providers.** OpenAI, Anthropic, Google, Groq, Together, Mistral, Cohere, Bedrock, Vertex, Azure, and more — all via a single client.
 - **Drop-in OpenAI replacement.** The surface matches the OpenAI SDK. Change two lines and keep all your existing code.
 - **Smart routing built in.** Fallback chains, weighted load balancing, conditional and cost-optimised routing — configured on the gateway, transparent to the caller.
-- **Provider and trace visibility.** Every inference response carries `provider` and a `trace_id` that matches the gateway's logs and OTel traces — no extra calls.
+- **Provider and trace visibility.** Every response carries a `trace_id` that matches the gateway's logs and OTel traces, and `provider` is filled in wherever the gateway reports it — the non-streaming chat body, and the `X-Gateway-Provider` header on `/v1/responses` and pass-through routes (not embeddings, images or SSE streams in v1.4.x) — no extra calls.
 - **Self-hostable.** Point `baseUrl` at any [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway) instance and go.
 - **TypeScript-first.** Full type inference, strict mode, zero runtime dependencies, ESM + CJS dual output.
 
