@@ -22,6 +22,7 @@ export class LogsResource {
     if (params?.provider) queryParams["provider"] = params.provider;
     if (params?.model) queryParams["model"] = params.model;
     if (params?.since) queryParams["since"] = params.since;
+    if (params?.api_key_id) queryParams["api_key_id"] = params.api_key_id;
 
     return this.http.request<Record<string, unknown>>("GET", "/admin/logs", {
       params: queryParams,
@@ -36,6 +37,8 @@ export class LogsResource {
     if (params?.stage) queryParams["stage"] = params.stage;
     if (params?.provider) queryParams["provider"] = params.provider;
     if (params?.model) queryParams["model"] = params.model;
+    if (params?.buckets !== undefined)
+      queryParams["buckets"] = String(params.buckets);
 
     return this.http.request<Record<string, unknown>>(
       "GET",
