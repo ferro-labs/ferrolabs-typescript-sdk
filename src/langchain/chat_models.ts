@@ -191,6 +191,11 @@ export class FerroChatModel extends BaseChatModel<FerroCallOptions> {
       stream: true,
     });
 
+    const streamMetadata = stripUndefined({
+      trace_id: stream.trace_id,
+      provider: stream.provider,
+    });
+
     for await (const chunk of stream) {
       const choice = chunk.choices[0];
       if (!choice) continue;
@@ -200,6 +205,7 @@ export class FerroChatModel extends BaseChatModel<FerroCallOptions> {
         message: new AIMessageChunk({
           content,
           tool_call_chunks: extractToolCallChunks(chunk),
+          response_metadata: streamMetadata,
         }),
         generationInfo: choice.finish_reason
           ? { finish_reason: choice.finish_reason }
@@ -276,18 +282,22 @@ function completionToChatResult(response: ChatCompletion): ChatResult {
 }
 
 function responseMetadata(response: ChatCompletion): Record<string, unknown> {
-  const metadata: Record<string, unknown> = {};
-  const set = (key: string, value: unknown): void => {
-    if (value !== undefined && value !== null) metadata[key] = value;
-  };
-
-  set("model", response.model);
-  set("id", response.id);
   // ``trace_id`` is the canonical join key (X-Request-ID == OTel trace id).
-  set("trace_id", response.trace_id);
-  set("provider", response.provider);
-  set("gateway_overhead_ms", response.gateway_overhead_ms);
-  return metadata;
+  return stripUndefined({
+    model: response.model,
+    id: response.id,
+    trace_id: response.trace_id,
+    provider: response.provider,
+    gateway_overhead_ms: response.gateway_overhead_ms,
+  });
+}
+
+function stripUndefined(
+  record: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, v]) => v !== undefined && v !== null),
+  );
 }
 
 function usageMetadata(response: ChatCompletion): UsageMetadata | undefined {

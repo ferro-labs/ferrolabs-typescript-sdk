@@ -219,6 +219,34 @@ describe("FerroChatModel", () => {
 
     expect(chunks[0]?.tool_call_chunks?.[0]?.index).toBe(2);
   });
+
+  it("stamps stream chunks with trace_id/provider from the stream", async () => {
+    const chunk = {
+      id: "chunk-1",
+      object: "chat.completion.chunk",
+      created: 1,
+      model: "gpt-4o",
+      choices: [{ index: 0, delta: { content: "hi" }, finish_reason: null }],
+    };
+    const { fetch } = createMockFetch({
+      stream: ["data: " + JSON.stringify(chunk), "data: [DONE]"],
+      headers: {
+        "x-request-id": "160b75c8487ad58d5307f3d8453c5945",
+        "x-gateway-provider": "openai",
+      },
+    });
+    const model = makeModel(fetch);
+
+    const chunks = [];
+    for await (const c of await model.stream([new HumanMessage("Hi")])) {
+      chunks.push(c);
+    }
+
+    expect(chunks[0]?.response_metadata).toMatchObject({
+      trace_id: "160b75c8487ad58d5307f3d8453c5945",
+      provider: "openai",
+    });
+  });
 });
 
 describe("messagesToFerroParams", () => {
