@@ -25,7 +25,7 @@ jobs:
           ref: e8e4e26ddbd1dcf734722d82f02fabb50ce50037 # v1.4.5
           path: .gateway
           persist-credentials: false
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: .gateway/go.mod
 
