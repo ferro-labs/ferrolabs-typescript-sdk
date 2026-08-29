@@ -15,6 +15,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A release must pass the contract suite against the pinned gateway.
+      - name: Check out AI Gateway (pinned)
+        uses: actions/checkout@v4
+        with:
+          repository: ferro-labs/ai-gateway
+          ref: v1.4.5
+          path: .gateway
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .gateway/go.mod
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -23,6 +34,10 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: ./scripts/with-gateway.sh
+        env:
+          FERRO_GATEWAY_SOURCE: ${{ github.workspace }}/.gateway
+      - run: rm -rf .gateway
       - run: npm run build
 
       - name: Verify tag matches package version

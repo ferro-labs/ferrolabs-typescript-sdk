@@ -92,8 +92,26 @@ const server = http.createServer((req, res) => {
     }
     if (req.method === "POST" && path === "/v1/chat/completions") {
       const model = body?.model ?? "gpt-4o-mini";
-      if (body?.stream) return sse(res, model, !!body?.stream_options?.include_usage);
+      if (body?.stream)
+        return sse(res, model, !!body?.stream_options?.include_usage);
       return json(res, 200, chatCompletion(model));
+    }
+    if (req.method === "POST" && path === "/v1/responses") {
+      return json(res, 200, {
+        id: "resp_stub",
+        object: "response",
+        created_at: 1700000000,
+        status: "completed",
+        model: body?.model ?? "gpt-4o-mini",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "stub response" }],
+          },
+        ],
+        usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+      });
     }
     if (req.method === "POST" && path === "/v1/embeddings") {
       const inputs = Array.isArray(body?.input) ? body.input : [body?.input];
@@ -109,7 +127,11 @@ const server = http.createServer((req, res) => {
       });
     }
     json(res, 404, {
-      error: { message: `stub: no route for ${req.method} ${path}`, type: "invalid_request_error", code: "not_found" },
+      error: {
+        message: `stub: no route for ${req.method} ${path}`,
+        type: "invalid_request_error",
+        code: "not_found",
+      },
     });
   });
 });

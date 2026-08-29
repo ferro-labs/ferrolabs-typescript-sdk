@@ -43,6 +43,40 @@ jobs:
       - name: Build
         run: npm run build
 
+  contract:
+    name: Contract vs AI Gateway ${{ matrix.gateway_ref }}
+    runs-on: ubuntu-latest
+    # The pinned leg is the required signal; "main" moves upstream of this
+    # repo, so a failure there must only report, never block.
+    continue-on-error: ${{ matrix.gateway_ref == 'main' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        gateway_ref: ["v1.4.5", "main"]
+    steps:
+      - name: Check out the SDK
+        uses: actions/checkout@v4
+        with:
+          path: sdk
+      - name: Check out AI Gateway
+        uses: actions/checkout@v4
+        with:
+          repository: ferro-labs/ai-gateway
+          ref: ${{ matrix.gateway_ref }}
+          path: ai-gateway
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ai-gateway/go.mod
+      - run: npm ci
+        working-directory: sdk
+      - run: ./scripts/with-gateway.sh
+        working-directory: sdk
+        env:
+          FERRO_GATEWAY_SOURCE: ${{ github.workspace }}/ai-gateway
+
   coverage:
     runs-on: ubuntu-latest
     needs: build-and-test
