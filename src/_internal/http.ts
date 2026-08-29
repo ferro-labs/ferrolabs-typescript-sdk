@@ -1,13 +1,22 @@
 import {
   FerroAPIError,
   FerroAuthError,
+  FerroBudgetExceededError,
   FerroConnectionError,
   FerroNotFoundError,
+  FerroPermissionError,
   FerroRateLimitError,
   FerroServerError,
 } from "../errors.js";
 import { VERSION } from "../version.js";
 import type { Logger } from "./logger.js";
+
+// Same policy as the gateway's own upstream retries.
+const RETRY_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "PUT", "DELETE", "OPTIONS"]);
+const BACKOFF_BASE_MS = 500;
+const BACKOFF_CAP_MS = 8_000;
+const RETRY_AFTER_CAP_MS = 30_000;
 
 export interface HttpClientConfig {
   baseUrl: string;
@@ -19,6 +28,15 @@ export interface HttpClientConfig {
   logger: Logger;
 }
 
+export interface RequestOptions {
+  json?: unknown;
+  params?: Record<string, string>;
+  /** Merge gateway headers into the body — inference responses only. */
+  meta?: boolean;
+  /** Extra statuses to treat as success (e.g. 503 from `/health`). */
+  acceptStatus?: number[];
+}
+
 export class HttpClient {
   private readonly config: HttpClientConfig;
   private readonly log: Logger;
@@ -28,21 +46,25 @@ export class HttpClient {
     this.log = config.logger;
   }
 
+  /** The configured request timeout; also the stream idle timeout. */
+  get timeout(): number {
+    return this.config.timeout;
+  }
+
   async request<T>(
     method: string,
     path: string,
-    options?: { json?: unknown; params?: Record<string, string> },
+    options?: RequestOptions,
   ): Promise<T> {
     const url = this.buildUrl(path, options?.params);
     const headers = this.buildHeaders();
     const body = options?.json ? JSON.stringify(options.json) : undefined;
 
-    let lastError: Error | undefined;
     const startTime = Date.now();
 
     this.log.debug("request start", { method, url });
 
-    for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {
+    for (let attempt = 0; ; attempt++) {
       if (attempt > 0) {
         this.log.debug("request retry", { method, url, attempt });
       }
@@ -63,13 +85,25 @@ export class HttpClient {
 
         clearTimeout(timeoutId);
 
-        if (!response.ok) {
+        const accepted =
+          response.ok ||
+          (options?.acceptStatus?.includes(response.status) ?? false);
+
+        if (!accepted) {
           this.log.warn("request error response", {
             method,
             url,
             status: response.status,
             elapsed_ms: Date.now() - startTime,
           });
+          if (
+            shouldRetry(method, { status: response.status }) &&
+            attempt < this.config.maxRetries
+          ) {
+            await response.text().catch(() => "");
+            await sleep(retryDelay(attempt, retryAfterSeconds(response)));
+            continue;
+          }
           await this.handleErrorResponse(response);
         }
 
@@ -88,24 +122,29 @@ export class HttpClient {
         if (!text) return undefined as T;
 
         const parsed = JSON.parse(text);
-        return mergeResponseMetadata(parsed, response) as T;
+        return (
+          options?.meta ? mergeResponseMetadata(parsed, response) : parsed
+        ) as T;
       } catch (error) {
         clearTimeout(timeoutId);
 
         if (error instanceof FerroAPIError) throw error;
 
-        if (this.isRetryable(error) && attempt < this.config.maxRetries) {
+        if (
+          shouldRetry(method, { error }) &&
+          attempt < this.config.maxRetries
+        ) {
           this.log.warn("request retryable error", {
             method,
             url,
             attempt,
             error: (error as Error).message,
           });
-          lastError = error as Error;
+          await sleep(retryDelay(attempt));
           continue;
         }
 
-        if (this.isAbortError(error)) {
+        if (isAbortError(error)) {
           this.log.error("request timeout", {
             method,
             url,
@@ -126,28 +165,24 @@ export class HttpClient {
         );
       }
     }
-
-    this.log.error("request exhausted retries", {
-      method,
-      url,
-      retries: this.config.maxRetries,
-    });
-    throw (
-      lastError ?? new FerroConnectionError("Request failed after all retries")
-    );
   }
 
-  async *stream(
+  /**
+   * Open an SSE response. Never retried. The caller owns the body; wrap it in
+   * `Stream` to iterate frames with the idle timeout and cancel semantics.
+   */
+  async stream(
     method: string,
     path: string,
     body: unknown,
     signal?: AbortSignal,
-  ): AsyncGenerator<string> {
+  ): Promise<Response> {
     const url = this.buildUrl(path);
-    const headers = this.buildHeaders();
+    const headers = { ...this.buildHeaders(), Accept: "text/event-stream" };
 
     this.log.debug("stream start", { method, url });
 
+    // Bounds the connection + headers phase only; Stream bounds each read.
     const timeoutController = new AbortController();
     const timeoutId = setTimeout(
       () => timeoutController.abort(),
@@ -167,8 +202,7 @@ export class HttpClient {
         signal: combinedSignal,
       });
     } catch (error) {
-      clearTimeout(timeoutId);
-      if (this.isAbortError(error)) {
+      if (isAbortError(error)) {
         if (signal?.aborted) {
           throw new FerroConnectionError("Stream aborted by caller");
         }
@@ -179,43 +213,15 @@ export class HttpClient {
       throw new FerroConnectionError(
         `Stream connection failed: ${(error as Error).message}`,
       );
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) {
       await this.handleErrorResponse(response);
     }
 
-    if (!response.body) {
-      throw new FerroConnectionError("Response body is null");
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    try {
-      while (true) {
-        if (signal?.aborted) break;
-
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed) yield trimmed;
-        }
-      }
-
-      if (buffer.trim()) yield buffer.trim();
-    } finally {
-      reader.releaseLock();
-    }
+    return response;
   }
 
   private buildUrl(path: string, params?: Record<string, string>): string {
@@ -229,11 +235,12 @@ export class HttpClient {
   }
 
   private buildHeaders(): Record<string, string> {
+    // defaultHeaders first so a caller can never shadow Authorization.
     const headers: Record<string, string> = {
+      ...this.config.defaultHeaders,
       Authorization: `Bearer ${this.config.apiKey}`,
       "Content-Type": "application/json",
-      "X-Ferro-Client": `ferrolabsai-typescript/${VERSION}`,
-      ...this.config.defaultHeaders,
+      "X-Gateway-Client": `ferrolabsai-typescript/${VERSION}`,
     };
 
     if (typeof process !== "undefined" && process.versions?.node) {
@@ -244,14 +251,10 @@ export class HttpClient {
   }
 
   private async handleErrorResponse(response: Response): Promise<never> {
-    const requestId =
-      response.headers.get("x-request-id") ??
-      response.headers.get("x-ferro-request-id") ??
-      undefined;
+    const requestId = response.headers.get("x-request-id") ?? undefined;
 
     let message: string;
     let code: string | undefined;
-    let bodyRequestId: string | undefined;
 
     try {
       const body = (await response.json()) as Record<string, unknown>;
@@ -261,111 +264,135 @@ export class HttpClient {
         (body["message"] as string) ??
         response.statusText;
       code = (error?.["code"] as string) ?? (body["code"] as string);
-      bodyRequestId =
-        (body["request_id"] as string) ?? (body["trace_id"] as string);
     } catch {
       message = (await response.text().catch(() => "")) || response.statusText;
     }
 
-    const resolvedRequestId = requestId ?? bodyRequestId;
+    const options = { code, requestId };
 
     switch (response.status) {
       case 401:
-        throw new FerroAuthError(message, { requestId: resolvedRequestId });
+        throw new FerroAuthError(message, options);
+      case 402:
+        throw new FerroBudgetExceededError(message, options);
+      case 403:
+        throw new FerroPermissionError(message, options);
+      case 404:
+        throw new FerroNotFoundError(message, options);
       case 429:
         throw new FerroRateLimitError(message, {
-          requestId: resolvedRequestId,
-        });
-      case 404:
-        throw new FerroNotFoundError(message, {
-          requestId: resolvedRequestId,
+          ...options,
+          retryAfter: retryAfterSeconds(response),
         });
       default:
         if (response.status >= 500) {
           throw new FerroServerError(message, {
+            ...options,
             status: response.status,
-            requestId: resolvedRequestId,
           });
         }
         throw new FerroAPIError(message, {
+          ...options,
           status: response.status,
-          code,
-          requestId: resolvedRequestId,
         });
     }
   }
+}
 
-  private isRetryable(error: unknown): boolean {
-    if (error instanceof TypeError) return true;
-    if (this.isAbortError(error)) return true;
-    return false;
-  }
-
-  private isAbortError(error: unknown): boolean {
-    return (
-      error instanceof DOMException ||
-      (error instanceof Error && error.name === "AbortError")
-    );
-  }
+function isAbortError(error: unknown): boolean {
+  return (
+    error instanceof DOMException ||
+    (error instanceof Error && error.name === "AbortError")
+  );
 }
 
 /**
- * Copy gateway metadata headers into parsed response bodies.
+ * Whether a failed attempt may be re-sent. Pass either the response `status`
+ * or the `error` thrown by `fetch`.
  *
- * The gateway surfaces `trace_id`, `provider`, `cost_usd`, and `latency_ms`
- * via response headers (frozen contract since ai-gateway v1.1.0), but they are
- * not always present in the JSON body. This merges header values into the
- * parsed object so `ChatCompletion.trace_id`, `.provider`, `.latency_ms`, and
- * `usage.cost_usd` are reliably populated. Body fields stay authoritative when
- * both sources are present.
+ * - 429 and a network failure before any response: retried for every method —
+ *   the gateway did not process the request.
+ * - 408/5xx and the SDK's own per-attempt timeout: idempotent methods only.
+ *   `fetch` cannot tell a connect timeout from a read timeout, so a POST that
+ *   timed out may already have been executed.
  */
-function mergeResponseMetadata(parsed: unknown, response: Response): unknown {
+export function shouldRetry(
+  method: string,
+  outcome: { status?: number; error?: unknown },
+): boolean {
+  const idempotent = IDEMPOTENT_METHODS.has(method.toUpperCase());
+  if (outcome.status !== undefined) {
+    if (outcome.status === 429) return true;
+    return idempotent && RETRY_STATUSES.has(outcome.status);
+  }
+  if (outcome.error instanceof TypeError) return true;
+  return idempotent && isAbortError(outcome.error);
+}
+
+/**
+ * Delay before retry `attempt` (0-based): `Retry-After` when the server sent
+ * one (capped at 30 s, like the gateway), else capped exponential backoff
+ * with full jitter.
+ */
+export function retryDelay(attempt: number, retryAfterSec?: number): number {
+  if (retryAfterSec !== undefined) {
+    return Math.min(retryAfterSec * 1000, RETRY_AFTER_CAP_MS);
+  }
+  const ceiling = Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** attempt);
+  return Math.random() * ceiling;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** `Retry-After` in seconds; `undefined` when absent or not a number. */
+// ponytail: delta-seconds only; the gateway never sends the HTTP-date form.
+export function retryAfterSeconds(response: Response): number | undefined {
+  const raw = response.headers.get("retry-after");
+  if (raw === null) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
+/**
+ * Copy the gateway's metadata headers into an inference response body.
+ *
+ * - `trace_id` ← `X-Request-ID` (every response)
+ * - `provider` ← body `provider` (chat) or `X-Gateway-Provider` (pass-through)
+ * - `gateway_overhead_ms` ← `X-Gateway-Overhead-Ms` (non-streaming chat only)
+ *
+ * Body fields stay authoritative when both sources are present. Only called
+ * for inference bodies — never for `/v1/models`, `/health` or `/admin/*`.
+ */
+export function mergeResponseMetadata(
+  parsed: unknown,
+  response: Response,
+): unknown {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     return parsed;
   }
 
   const data = parsed as Record<string, unknown>;
 
-  const traceId =
-    response.headers.get("x-request-id") ??
-    response.headers.get("x-trace-id") ??
-    response.headers.get("x-ferro-request-id");
+  const traceId = response.headers.get("x-request-id");
   if (traceId && data["trace_id"] === undefined) {
     data["trace_id"] = traceId;
   }
 
-  const provider = response.headers.get("x-ferro-provider");
+  const provider = response.headers.get("x-gateway-provider");
   if (provider && data["provider"] === undefined) {
     data["provider"] = provider;
   }
 
-  const latencyMs = headerInt(response.headers.get("x-ferro-latency-ms"));
-  if (latencyMs !== undefined && data["latency_ms"] === undefined) {
-    data["latency_ms"] = latencyMs;
-  }
-
-  const costUsd = headerFloat(response.headers.get("x-ferro-cost-usd"));
-  if (costUsd !== undefined) {
-    const usage = data["usage"];
-    if (usage !== null && typeof usage === "object" && !Array.isArray(usage)) {
-      const usageRecord = usage as Record<string, unknown>;
-      if (usageRecord["cost_usd"] === undefined) {
-        usageRecord["cost_usd"] = costUsd;
-      }
-    }
+  const overhead = Number(response.headers.get("x-gateway-overhead-ms"));
+  if (
+    response.headers.has("x-gateway-overhead-ms") &&
+    Number.isFinite(overhead) &&
+    data["gateway_overhead_ms"] === undefined
+  ) {
+    data["gateway_overhead_ms"] = overhead;
   }
 
   return data;
-}
-
-function headerInt(value: string | null): number | undefined {
-  if (value === null || value === "") return undefined;
-  const n = Number(value);
-  return Number.isFinite(n) ? Math.trunc(n) : undefined;
-}
-
-function headerFloat(value: string | null): number | undefined {
-  if (value === null || value === "") return undefined;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : undefined;
 }

@@ -5,8 +5,10 @@ export default defineConfig({
   format: ["esm", "cjs"],
   external: ["@langchain/core"],
   dts: true,
-  splitting: false,
-  sourcemap: true,
+  // Shared chunk for the core so the langchain entry no longer duplicates it.
+  splitting: true,
+  // src/ is not shipped, so a sourcemap would point at nothing.
+  sourcemap: false,
   clean: true,
   treeshake: true,
   minify: false,

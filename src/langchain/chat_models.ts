@@ -70,12 +70,6 @@ export interface FerroChatModelFields
   frequencyPenalty?: number;
   presencePenalty?: number;
   stop?: string[];
-  /** Ferro-specific: override the gateway routing strategy for this caller. */
-  routeTag?: string;
-  /** Ferro-specific: server-side prompt template ID. */
-  templateId?: string;
-  /** Ferro-specific: variables for the server-side template. */
-  templateVariables?: Record<string, unknown>;
   user?: string;
 }
 
@@ -83,10 +77,9 @@ export interface FerroChatModelFields
  * LangChain.js {@link BaseChatModel} backed by the Ferro Labs AI Gateway.
  *
  * A single instance can address any of the gateway's providers by model name
- * without swapping model classes. Every response surfaces `trace_id` (the Ferro
- * request ID propagated via the `x-trace-id` header — frozen contract since
- * `ai-gateway v1.1.0`) in `response_metadata`, the canonical join key for any
- * downstream observability bridge plugin.
+ * without swapping model classes. Every response surfaces `trace_id` (the
+ * gateway's `X-Request-ID`, equal to its OTel trace id) in `response_metadata`,
+ * the canonical join key for any downstream observability bridge plugin.
  *
  * @example
  * ```ts
@@ -107,9 +100,6 @@ export class FerroChatModel extends BaseChatModel<FerroCallOptions> {
   frequencyPenalty?: number;
   presencePenalty?: number;
   stop?: string[];
-  routeTag?: string;
-  templateId?: string;
-  templateVariables?: Record<string, unknown>;
   user?: string;
 
   private readonly clientOptions: FerroClientOptions;
@@ -124,9 +114,6 @@ export class FerroChatModel extends BaseChatModel<FerroCallOptions> {
     this.frequencyPenalty = fields.frequencyPenalty;
     this.presencePenalty = fields.presencePenalty;
     this.stop = fields.stop;
-    this.routeTag = fields.routeTag;
-    this.templateId = fields.templateId;
-    this.templateVariables = fields.templateVariables;
     this.user = fields.user;
 
     this.clientOptions = {
@@ -171,10 +158,6 @@ export class FerroChatModel extends BaseChatModel<FerroCallOptions> {
     const stop = options.stop ?? this.stop;
     if (stop && stop.length > 0) params.stop = stop;
 
-    if (this.routeTag !== undefined) params.route_tag = this.routeTag;
-    if (this.templateId !== undefined) params.template_id = this.templateId;
-    if (this.templateVariables !== undefined)
-      params.template_variables = this.templateVariables;
     if (this.user !== undefined) params.user = this.user;
 
     if (options.tools !== undefined) params.tools = options.tools;
@@ -208,6 +191,11 @@ export class FerroChatModel extends BaseChatModel<FerroCallOptions> {
       stream: true,
     });
 
+    const streamMetadata = stripUndefined({
+      trace_id: stream.trace_id,
+      provider: stream.provider,
+    });
+
     for await (const chunk of stream) {
       const choice = chunk.choices[0];
       if (!choice) continue;
@@ -217,6 +205,7 @@ export class FerroChatModel extends BaseChatModel<FerroCallOptions> {
         message: new AIMessageChunk({
           content,
           tool_call_chunks: extractToolCallChunks(chunk),
+          response_metadata: streamMetadata,
         }),
         generationInfo: choice.finish_reason
           ? { finish_reason: choice.finish_reason }
@@ -293,23 +282,22 @@ function completionToChatResult(response: ChatCompletion): ChatResult {
 }
 
 function responseMetadata(response: ChatCompletion): Record<string, unknown> {
-  const metadata: Record<string, unknown> = {};
-  const set = (key: string, value: unknown): void => {
-    if (value !== undefined && value !== null) metadata[key] = value;
-  };
+  // ``trace_id`` is the canonical join key (X-Request-ID == OTel trace id).
+  return stripUndefined({
+    model: response.model,
+    id: response.id,
+    trace_id: response.trace_id,
+    provider: response.provider,
+    gateway_overhead_ms: response.gateway_overhead_ms,
+  });
+}
 
-  set("model", response.model);
-  set("id", response.id);
-  // ``trace_id`` is the canonical join key. Frozen via x-trace-id since
-  // ai-gateway v1.1.0; mirrored by every Ferro observability bridge plugin.
-  set("trace_id", response.trace_id);
-  set("provider", response.provider);
-  set("latency_ms", response.latency_ms);
-  if (response.usage) {
-    set("cost_usd", response.usage.cost_usd);
-    set("cache_hit", response.usage.cache_hit);
-  }
-  return metadata;
+function stripUndefined(
+  record: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, v]) => v !== undefined && v !== null),
+  );
 }
 
 function usageMetadata(response: ChatCompletion): UsageMetadata | undefined {

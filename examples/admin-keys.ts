@@ -14,7 +14,9 @@ const client = new FerroClient();
 const keys = await client.admin.keys.list();
 console.log(`Existing keys: ${keys.length}`);
 for (const key of keys) {
-  console.log(`  ${key.name} (${key.id}) — active: ${key.active}, usage: ${key.usage_count}`);
+  console.log(
+    `  ${key.name} (${key.id}) — active: ${key.active}, usage: ${key.usage_count}`,
+  );
 }
 
 // Create a new key

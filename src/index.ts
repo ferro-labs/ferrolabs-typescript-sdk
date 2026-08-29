@@ -9,6 +9,8 @@ export {
   FerroError,
   FerroAPIError,
   FerroAuthError,
+  FerroBudgetExceededError,
+  FerroPermissionError,
   FerroRateLimitError,
   FerroNotFoundError,
   FerroServerError,
@@ -18,6 +20,7 @@ export {
 
 // Streaming
 export { Stream } from "./streaming.js";
+export type { StreamOptions as StreamIterationOptions } from "./streaming.js";
 
 // Version
 export { VERSION } from "./version.js";
@@ -37,7 +40,24 @@ export type {
   ChatCompletionChunk,
   StreamChoice,
   StreamDelta,
+  StreamOptions,
   Usage,
+  GatewayMetadata,
+} from "./types.js";
+
+// Types — Gateway surface
+export type {
+  HealthResponse,
+  ReadyResponse,
+  LiveResponse,
+  CapabilitiesResponse,
+  ParamSupport,
+  ResponseCreateParams,
+  Response,
+  RerankParams,
+  RerankResponse,
+  ModerationCreateParams,
+  ModerationResponse,
 } from "./types.js";
 
 // Types — Embeddings
@@ -65,6 +85,11 @@ export type {
   LogListParams,
   LogStatsParams,
   LogDeleteParams,
+  AuditListParams,
+  AuditEntry,
+  AuditListResponse,
+  ProviderCatalogEntry,
+  PluginCatalogEntry,
 } from "./types.js";
 
 // Types — Client Options

@@ -10,7 +10,11 @@ import { FerroClient } from "../src/index.js";
 
 const client = new FerroClient();
 
-const models = ["gpt-4o-mini", "claude-3-5-sonnet-20241022", "llama-3.3-70b-versatile"];
+const models = [
+  "gpt-4o-mini",
+  "claude-3-5-sonnet-20241022",
+  "llama-3.3-70b-versatile",
+];
 
 for (const model of models) {
   try {

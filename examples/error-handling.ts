@@ -51,7 +51,9 @@ function handleError(error: unknown): void {
   } else if (error instanceof FerroConnectionError) {
     console.error(`  Connection failed: ${error.message}`);
   } else if (error instanceof FerroAPIError) {
-    console.error(`  API error (${error.status}): ${error.message} [${error.code}]`);
+    console.error(
+      `  API error (${error.status}): ${error.message} [${error.code}]`,
+    );
   } else {
     console.error(`  Unknown error:`, error);
   }

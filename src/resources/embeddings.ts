@@ -21,6 +21,7 @@ export class Embeddings {
 
     return this.http.request<EmbeddingResponse>("POST", "/v1/embeddings", {
       json: body,
+      meta: true,
     });
   }
 }

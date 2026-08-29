@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { FerroClient } from "../src/client.js";
 import { Stream } from "../src/streaming.js";
+import { FerroNotFoundError } from "../src/errors.js";
 import { createMockFetch } from "./helpers/mock-fetch.js";
 
 const MOCK_COMPLETION = {
@@ -87,9 +88,9 @@ describe("Completions", () => {
       expect(body).not.toHaveProperty("top_logprobs");
       expect(body).not.toHaveProperty("logit_bias");
       expect(body).not.toHaveProperty("user");
-      expect(body).not.toHaveProperty("template_id");
-      expect(body).not.toHaveProperty("template_variables");
-      expect(body).not.toHaveProperty("x_route_tag");
+      expect(body).not.toHaveProperty("stream_options");
+      expect(body).not.toHaveProperty("parallel_tool_calls");
+      expect(body).not.toHaveProperty("max_completion_tokens");
     });
 
     it("includes optional params when provided", async () => {
@@ -122,23 +123,44 @@ describe("Completions", () => {
       expect(body["user"]).toBe("user-1");
     });
 
-    it("sends Ferro extras: template_id, template_variables, route_tag as x_route_tag", async () => {
+    it("forwards max_completion_tokens, parallel_tool_calls, tool_choice and stream_options", async () => {
       const { fetch, captured } = createMockFetch({ json: MOCK_COMPLETION });
       const client = makeClient(fetch);
 
       await client.chat.completions.create({
         model: "gpt-4",
         messages: [{ role: "user", content: "Hi" }],
-        template_id: "tmpl-abc",
-        template_variables: { name: "Alice" },
-        route_tag: "premium",
+        max_completion_tokens: 50,
+        parallel_tool_calls: false,
+        tool_choice: "required",
+        stream_options: { include_usage: true },
       });
 
       const body = captured[0]!.body as Record<string, unknown>;
-      expect(body["template_id"]).toBe("tmpl-abc");
-      expect(body["template_variables"]).toEqual({ name: "Alice" });
-      expect(body["x_route_tag"]).toBe("premium");
-      expect(body).not.toHaveProperty("route_tag");
+      expect(body["max_completion_tokens"]).toBe(50);
+      expect(body["parallel_tool_calls"]).toBe(false);
+      expect(body["tool_choice"]).toBe("required");
+      expect(body["stream_options"]).toEqual({ include_usage: true });
+    });
+
+    it("merges trace_id, provider and gateway_overhead_ms into the completion", async () => {
+      const { fetch } = createMockFetch({
+        json: { ...MOCK_COMPLETION, provider: "openai" },
+        headers: {
+          "x-request-id": "85b1cf6b5b96f49d9c01966c056bfbc7",
+          "x-gateway-overhead-ms": "12.5",
+        },
+      });
+      const client = makeClient(fetch);
+
+      const result = await client.chat.completions.create({
+        model: "gpt-4",
+        messages: [{ role: "user", content: "Hi" }],
+      });
+
+      expect(result.trace_id).toBe("85b1cf6b5b96f49d9c01966c056bfbc7");
+      expect(result.provider).toBe("openai");
+      expect(result.gateway_overhead_ms).toBe(12.5);
     });
   });
 
@@ -164,6 +186,50 @@ describe("Completions", () => {
       });
 
       expect(result).toBeInstanceOf(Stream);
+    });
+
+    it("sends Accept: text/event-stream and exposes trace_id on the Stream", async () => {
+      const chunk = {
+        id: "c",
+        object: "chat.completion.chunk",
+        created: 1,
+        model: "gpt-4",
+        choices: [],
+      };
+      const { fetch, captured } = createMockFetch({
+        stream: [`data: ${JSON.stringify(chunk)}`, "data: [DONE]"],
+        headers: { "x-request-id": "160b75c8487ad58d5307f3d8453c5945" },
+      });
+      const client = makeClient(fetch);
+
+      const stream = await client.chat.completions.create({
+        model: "gpt-4",
+        messages: [{ role: "user", content: "Hi" }],
+        stream: true,
+        stream_options: { include_usage: true },
+      });
+
+      expect(captured[0]!.headers["Accept"]).toBe("text/event-stream");
+      expect(stream.trace_id).toBe("160b75c8487ad58d5307f3d8453c5945");
+      const chunks = [];
+      for await (const c of stream) chunks.push(c);
+      expect(chunks[0]!.trace_id).toBe("160b75c8487ad58d5307f3d8453c5945");
+    });
+
+    it("maps a streaming 4xx to a typed error before iteration", async () => {
+      const { fetch } = createMockFetch({
+        status: 404,
+        json: { error: { message: "no", code: "model_not_found" } },
+      });
+      const client = makeClient(fetch);
+
+      await expect(
+        client.chat.completions.create({
+          model: "nope",
+          messages: [{ role: "user", content: "Hi" }],
+          stream: true,
+        }),
+      ).rejects.toThrow(FerroNotFoundError);
     });
 
     it("streaming request body includes stream: true", async () => {

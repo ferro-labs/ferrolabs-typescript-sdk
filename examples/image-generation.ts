@@ -10,12 +10,14 @@ const client = new FerroClient();
 
 const response = await client.images.generate({
   model: "dall-e-3",
-  prompt: "A futuristic AI gateway routing data streams across glowing servers in a dark datacenter",
+  prompt:
+    "A futuristic AI gateway routing data streams across glowing servers in a dark datacenter",
   size: "1024x1024",
   quality: "hd",
 });
 
 for (const image of response.data) {
   if (image.url) console.log("Image URL:", image.url);
-  if (image.revised_prompt) console.log("Revised prompt:", image.revised_prompt);
+  if (image.revised_prompt)
+    console.log("Revised prompt:", image.revised_prompt);
 }

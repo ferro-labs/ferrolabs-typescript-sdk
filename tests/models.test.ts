@@ -1,15 +1,35 @@
 import { describe, it, expect } from "vitest";
 import { FerroClient } from "../src/client.js";
+import { FerroNotFoundError } from "../src/errors.js";
 import { createMockFetch } from "./helpers/mock-fetch.js";
 
-const MOCK_MODEL: Record<string, unknown> = {
-  id: "gpt-4",
-  object: "model",
-  created: 1700000000,
-  provider: "openai",
-  context_window: 128000,
-  capabilities: ["chat", "function_calling"],
-};
+const CATALOG = [
+  {
+    id: "gpt-4o",
+    object: "model",
+    created: 0,
+    owned_by: "openai",
+    mode: "chat",
+    context_window: 128000,
+    capabilities: ["vision", "function_calling", "streaming"],
+    status: "ga",
+  },
+  {
+    id: "claude-sonnet-4-6",
+    object: "model",
+    created: 0,
+    owned_by: "anthropic",
+    mode: "chat",
+    capabilities: ["function_calling", "streaming"],
+  },
+  {
+    id: "text-embedding-3-small",
+    object: "model",
+    created: 0,
+    owned_by: "openai",
+    mode: "embedding",
+  },
+];
 
 function makeClient(fetchFn: typeof globalThis.fetch) {
   return new FerroClient({ apiKey: "sk-test", fetch: fetchFn });
@@ -17,109 +37,95 @@ function makeClient(fetchFn: typeof globalThis.fetch) {
 
 describe("Models", () => {
   describe("list", () => {
-    it("handles { data: [...] } response shape", async () => {
-      const { fetch } = createMockFetch({
-        json: { data: [MOCK_MODEL] },
-      });
+    it("fetches GET /v1/models without query params", async () => {
+      const { fetch, captured } = createMockFetch({ json: { data: CATALOG } });
       const client = makeClient(fetch);
 
       const result = await client.models.list();
-      expect(result).toEqual([MOCK_MODEL]);
+      expect(result).toEqual(CATALOG);
+      expect(captured[0]!.url).toMatch(/\/v1\/models$/);
     });
 
     it("handles raw array response", async () => {
-      const { fetch } = createMockFetch({
-        json: [MOCK_MODEL],
+      const { fetch } = createMockFetch({ json: CATALOG });
+      const client = makeClient(fetch);
+
+      expect(await client.models.list()).toEqual(CATALOG);
+    });
+
+    it("filters by provider client-side (owned_by)", async () => {
+      const { fetch, captured } = createMockFetch({ json: { data: CATALOG } });
+      const client = makeClient(fetch);
+
+      const result = await client.models.list({ provider: "anthropic" });
+      expect(result.map((m) => m.id)).toEqual(["claude-sonnet-4-6"]);
+      expect(captured[0]!.url).not.toContain("provider=");
+    });
+
+    it("filters by capability client-side", async () => {
+      const { fetch, captured } = createMockFetch({ json: { data: CATALOG } });
+      const client = makeClient(fetch);
+
+      const result = await client.models.list({ capability: "vision" });
+      expect(result.map((m) => m.id)).toEqual(["gpt-4o"]);
+      expect(captured[0]!.url).not.toContain("capability=");
+    });
+
+    it("applies both filters", async () => {
+      const { fetch } = createMockFetch({ json: { data: CATALOG } });
+      const client = makeClient(fetch);
+
+      const result = await client.models.list({
+        provider: "openai",
+        capability: "streaming",
       });
-      const client = makeClient(fetch);
-
-      const result = await client.models.list();
-      expect(result).toEqual([MOCK_MODEL]);
-    });
-
-    it("sends provider query param", async () => {
-      const { fetch, captured } = createMockFetch({ json: { data: [] } });
-      const client = makeClient(fetch);
-
-      await client.models.list({ provider: "openai" });
-      expect(captured[0]!.url).toContain("provider=openai");
-    });
-
-    it("sends capability query param", async () => {
-      const { fetch, captured } = createMockFetch({ json: { data: [] } });
-      const client = makeClient(fetch);
-
-      await client.models.list({ capability: "chat" });
-      expect(captured[0]!.url).toContain("capability=chat");
-    });
-
-    it("sends both provider and capability query params", async () => {
-      const { fetch, captured } = createMockFetch({ json: { data: [] } });
-      const client = makeClient(fetch);
-
-      await client.models.list({ provider: "anthropic", capability: "vision" });
-      const url = captured[0]!.url;
-      expect(url).toContain("provider=anthropic");
-      expect(url).toContain("capability=vision");
-    });
-
-    it("sends no query params when none provided", async () => {
-      const { fetch, captured } = createMockFetch({ json: { data: [] } });
-      const client = makeClient(fetch);
-
-      await client.models.list();
-      const url = captured[0]!.url;
-      expect(url).not.toContain("provider=");
-      expect(url).not.toContain("capability=");
+      expect(result.map((m) => m.id)).toEqual(["gpt-4o"]);
     });
   });
 
   describe("retrieve", () => {
-    it("calls correct URL with model ID", async () => {
-      const { fetch, captured } = createMockFetch({ json: MOCK_MODEL });
+    it("looks the model up in the catalog and never calls /v1/models/{id}", async () => {
+      const { fetch, captured } = createMockFetch({ json: { data: CATALOG } });
       const client = makeClient(fetch);
 
-      const result = await client.models.retrieve("gpt-4");
-      expect(result).toEqual(MOCK_MODEL);
-      expect(captured[0]!.url).toContain("/v1/models/gpt-4");
-      expect(captured[0]!.method).toBe("GET");
+      const result = await client.models.retrieve("gpt-4o");
+      expect(result).toEqual(CATALOG[0]);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]!.url).toMatch(/\/v1\/models$/);
     });
 
-    it("encodes model ID with special characters in URL", async () => {
-      const { fetch, captured } = createMockFetch({ json: MOCK_MODEL });
+    it("throws FerroNotFoundError(model_not_found) locally for unknown ids", async () => {
+      const { fetch, captured } = createMockFetch({ json: { data: CATALOG } });
       const client = makeClient(fetch);
 
-      await client.models.retrieve("openai/gpt-4");
-      expect(captured[0]!.url).toContain("/v1/models/openai%2Fgpt-4");
-    });
-
-    it("encodes model ID with spaces", async () => {
-      const { fetch, captured } = createMockFetch({ json: MOCK_MODEL });
-      const client = makeClient(fetch);
-
-      await client.models.retrieve("my model");
-      expect(captured[0]!.url).toContain("/v1/models/my%20model");
+      try {
+        await client.models.retrieve("openai/gpt-4");
+        expect.unreachable("should have thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(FerroNotFoundError);
+        expect((err as FerroNotFoundError).code).toBe("model_not_found");
+        expect((err as FerroNotFoundError).status).toBe(404);
+      }
+      expect(captured).toHaveLength(1);
     });
   });
 
   describe("search", () => {
-    it("sends search query param", async () => {
-      const { fetch, captured } = createMockFetch({
-        json: { data: [MOCK_MODEL] },
-      });
+    it("is a case-insensitive substring match on id, client-side", async () => {
+      const { fetch, captured } = createMockFetch({ json: { data: CATALOG } });
       const client = makeClient(fetch);
 
-      const result = await client.models.search("gpt");
-      expect(result).toEqual([MOCK_MODEL]);
-      expect(captured[0]!.url).toContain("search=gpt");
+      const result = await client.models.search("GPT");
+      expect(result.map((m) => m.id)).toEqual(["gpt-4o"]);
+      expect(captured[0]!.url).not.toContain("search=");
     });
 
     it("handles raw array response", async () => {
-      const { fetch } = createMockFetch({ json: [MOCK_MODEL] });
+      const { fetch } = createMockFetch({ json: CATALOG });
       const client = makeClient(fetch);
 
-      const result = await client.models.search("gpt");
-      expect(result).toEqual([MOCK_MODEL]);
+      const result = await client.models.search("embedding");
+      expect(result.map((m) => m.id)).toEqual(["text-embedding-3-small"]);
     });
   });
 });

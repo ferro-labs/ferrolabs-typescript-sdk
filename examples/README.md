@@ -4,7 +4,7 @@ Runnable examples demonstrating the Ferro Labs TypeScript SDK.
 
 ## Prerequisites
 
-- Node.js 18+ with [tsx](https://github.com/privatenumber/tsx) (`npm install -g tsx`)
+- Node.js 20+ with [tsx](https://github.com/privatenumber/tsx) (`npm install -g tsx`)
 - A running [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway) instance
 - An API key: `export FERRO_API_KEY=sk-ferro-...`
 
@@ -17,7 +17,7 @@ Runnable examples demonstrating the Ferro Labs TypeScript SDK.
 | [multi-provider.ts](multi-provider.ts) | Same client routing to OpenAI, Anthropic, and Groq |
 | [embeddings.ts](embeddings.ts) | Vector embedding generation |
 | [image-generation.ts](image-generation.ts) | Image generation via DALL-E |
-| [model-catalog.ts](model-catalog.ts) | Browse, filter, and inspect the 2,500+ model catalog |
+| [model-catalog.ts](model-catalog.ts) | Browse the model catalog; filters and `retrieve()` are client-side lookups |
 | [tool-calling.ts](tool-calling.ts) | Function/tool calling with tool result round-trip |
 | [error-handling.ts](error-handling.ts) | Typed exception catching for all error types |
 | [admin-keys.ts](admin-keys.ts) | Admin API: create, list, rotate, and delete API keys |

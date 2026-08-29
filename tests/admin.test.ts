@@ -350,6 +350,7 @@ describe("Admin Logs", () => {
         provider: "anthropic",
         model: "claude-3-opus",
         since: "2024-01-01",
+        api_key_id: "none",
       });
 
       const url = captured[0]!.url;
@@ -359,6 +360,7 @@ describe("Admin Logs", () => {
       expect(url).toContain("provider=anthropic");
       expect(url).toContain("model=claude-3-opus");
       expect(url).toContain("since=2024-01-01");
+      expect(url).toContain("api_key_id=none");
     });
 
     it("omits undefined params", async () => {
@@ -377,7 +379,7 @@ describe("Admin Logs", () => {
 
   describe("stats", () => {
     it("calls GET /admin/logs/stats", async () => {
-      const mockStats = { total_requests: 500, avg_latency_ms: 120 };
+      const mockStats = { total_requests: 500, avg_duration_ms: 120 };
       const { fetch, captured } = createMockFetch({ json: mockStats });
       const client = makeClient(fetch);
 
@@ -397,6 +399,7 @@ describe("Admin Logs", () => {
         stage: "staging",
         provider: "openai",
         model: "gpt-4",
+        buckets: 12,
       });
 
       const url = captured[0]!.url;
@@ -405,6 +408,7 @@ describe("Admin Logs", () => {
       expect(url).toContain("stage=staging");
       expect(url).toContain("provider=openai");
       expect(url).toContain("model=gpt-4");
+      expect(url).toContain("buckets=12");
     });
   });
 
@@ -472,6 +476,19 @@ describe("Admin Providers", () => {
       expect(captured[0]!.url).toContain("/admin/providers");
     });
   });
+
+  describe("catalog", () => {
+    it("unwraps { providers: [...] } from GET /admin/providers/catalog", async () => {
+      const entries = [{ id: "openai", registered: true, catalog_models: 169 }];
+      const { fetch, captured } = createMockFetch({
+        json: { providers: entries },
+      });
+      const client = makeClient(fetch);
+
+      expect(await client.admin.providers.catalog()).toEqual(entries);
+      expect(captured[0]!.url).toContain("/admin/providers/catalog");
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -506,6 +523,67 @@ describe("Admin Plugins", () => {
       expect(captured[0]!.method).toBe("GET");
       expect(captured[0]!.url).toContain("/admin/plugins");
     });
+  });
+
+  describe("catalog", () => {
+    it("unwraps { data: [...] } from GET /admin/plugins/catalog", async () => {
+      const entries = [
+        {
+          name: "word-filter",
+          type: "guardrail",
+          settings: ["blocked_words"],
+          fails_open: false,
+        },
+      ];
+      const { fetch, captured } = createMockFetch({ json: { data: entries } });
+      const client = makeClient(fetch);
+
+      expect(await client.admin.plugins.catalog()).toEqual(entries);
+      expect(captured[0]!.url).toContain("/admin/plugins/catalog");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit
+// ---------------------------------------------------------------------------
+
+describe("Admin Audit", () => {
+  it("lists audit entries with filters", async () => {
+    const body = {
+      data: [
+        {
+          occurred_at: "t",
+          action: "key.create",
+          actor: "a",
+          actor_id: "a",
+          outcome: "ok",
+        },
+      ],
+      summary: { total_entries: 1, returned_entries: 1 },
+      filters: { limit: 5, offset: 0 },
+    };
+    const { fetch, captured } = createMockFetch({ json: body });
+    const client = makeClient(fetch);
+
+    const result = await client.admin.audit.list({
+      action: "key.create",
+      actor_id: "a",
+      outcome: "ok",
+      since: "2026-01-01T00:00:00Z",
+      limit: 5,
+      offset: 0,
+    });
+
+    expect(result).toEqual(body);
+    const url = captured[0]!.url;
+    expect(url).toContain("/admin/audit");
+    expect(url).toContain("action=key.create");
+    expect(url).toContain("actor_id=a");
+    expect(url).toContain("outcome=ok");
+    expect(url).toContain("since=2026-01-01");
+    expect(url).toContain("limit=5");
+    expect(url).toContain("offset=0");
   });
 });
 

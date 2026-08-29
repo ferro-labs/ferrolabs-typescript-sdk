@@ -10,7 +10,14 @@ You can expect an acknowledgement within **48 hours** and a full response within
 
 ## Scope
 
-This policy covers the `ferrolabsai` npm package. For gateway-level security issues, report to the [ai-gateway repository](https://github.com/ferro-labs/ai-gateway/security).
+This policy covers the `@ferro-labs-ai/sdk` npm package. For gateway-level security issues, report to the [ai-gateway repository](https://github.com/ferro-labs/ai-gateway/security).
+
+## Supported Versions
+
+| Version | Supported |
+|---|---|
+| 0.3.x | Yes |
+| < 0.3 | No — upgrade; earlier releases read a header contract the gateway never emitted |
 
 ## Secure Usage
 

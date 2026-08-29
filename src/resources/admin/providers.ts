@@ -1,4 +1,5 @@
 import type { HttpClient } from "../../_internal/http.js";
+import type { ProviderCatalogEntry } from "../../types.js";
 
 export class ProvidersResource {
   private readonly http: HttpClient;
@@ -13,5 +14,13 @@ export class ProvidersResource {
     >("GET", "/admin/providers");
 
     return Array.isArray(data) ? data : (data.data ?? []);
+  }
+
+  /** `GET /admin/providers/catalog` — every provider the build knows. */
+  async catalog(): Promise<ProviderCatalogEntry[]> {
+    const data = await this.http.request<{
+      providers?: ProviderCatalogEntry[];
+    }>("GET", "/admin/providers/catalog");
+    return data.providers ?? [];
   }
 }

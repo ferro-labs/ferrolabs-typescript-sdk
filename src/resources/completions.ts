@@ -38,6 +38,7 @@ export class Completions {
 
     return this.http.request<ChatCompletion>("POST", "/v1/chat/completions", {
       json: body,
+      meta: true,
     });
   }
 }
@@ -51,6 +52,8 @@ function buildRequestBody(
   };
 
   if (params.stream !== undefined) body["stream"] = params.stream;
+  if (params.stream_options !== undefined)
+    body["stream_options"] = params.stream_options;
   if (params.temperature !== undefined)
     body["temperature"] = params.temperature;
   if (params.max_tokens !== undefined) body["max_tokens"] = params.max_tokens;
@@ -67,6 +70,8 @@ function buildRequestBody(
   if (params.tools !== undefined) body["tools"] = params.tools;
   if (params.tool_choice !== undefined)
     body["tool_choice"] = params.tool_choice;
+  if (params.parallel_tool_calls !== undefined)
+    body["parallel_tool_calls"] = params.parallel_tool_calls;
   if (params.response_format !== undefined)
     body["response_format"] = params.response_format;
   if (params.logprobs !== undefined) body["logprobs"] = params.logprobs;
@@ -74,11 +79,6 @@ function buildRequestBody(
     body["top_logprobs"] = params.top_logprobs;
   if (params.logit_bias !== undefined) body["logit_bias"] = params.logit_bias;
   if (params.user !== undefined) body["user"] = params.user;
-  if (params.template_id !== undefined)
-    body["template_id"] = params.template_id;
-  if (params.template_variables !== undefined)
-    body["template_variables"] = params.template_variables;
-  if (params.route_tag !== undefined) body["x_route_tag"] = params.route_tag;
 
   return body;
 }

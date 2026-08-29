@@ -24,6 +24,7 @@ export class Images {
 
     return this.http.request<ImageResponse>("POST", "/v1/images/generations", {
       json: body,
+      meta: true,
     });
   }
 }

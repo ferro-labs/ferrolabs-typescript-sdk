@@ -6,8 +6,11 @@ export interface ChatCompletionCreateParams {
   model: string;
   messages: ChatMessageParam[];
   stream?: boolean;
+  /** Ask the gateway for a terminal `usage` chunk when streaming. */
+  stream_options?: StreamOptions;
   temperature?: number;
   max_tokens?: number;
+  /** Supersedes `max_tokens`; the gateway accepts both. */
   max_completion_tokens?: number;
   top_p?: number;
   n?: number;
@@ -16,18 +19,17 @@ export interface ChatCompletionCreateParams {
   presence_penalty?: number;
   stop?: string | string[];
   tools?: Tool[];
-  tool_choice?: string | ToolChoice;
+  tool_choice?: "auto" | "none" | "required" | ToolChoice;
+  parallel_tool_calls?: boolean;
   response_format?: ResponseFormat;
   logprobs?: boolean;
   top_logprobs?: number;
   logit_bias?: Record<string, number>;
   user?: string;
-  /** Ferro-specific: server-side prompt template ID */
-  template_id?: string;
-  /** Ferro-specific: variables for template */
-  template_variables?: Record<string, unknown>;
-  /** Ferro-specific: routing tag */
-  route_tag?: string;
+}
+
+export interface StreamOptions {
+  include_usage?: boolean;
 }
 
 export interface ChatMessageParam {
@@ -65,22 +67,35 @@ export interface ResponseFormat {
 }
 
 // ---------------------------------------------------------------------------
+// Gateway metadata (merged from response headers on inference bodies)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fields the SDK merges into inference responses from the gateway's headers.
+ * See the README "Observability" table for exactly what populates each one.
+ */
+export interface GatewayMetadata {
+  /** `X-Request-ID` — 32 hex chars, equals the gateway's OTel trace id. */
+  trace_id?: string;
+  /** Body `provider` (chat) or the `X-Gateway-Provider` header. */
+  provider?: string;
+  /** `X-Gateway-Overhead-Ms` — gateway overhead, NOT end-to-end latency. */
+  gateway_overhead_ms?: number;
+}
+
+// ---------------------------------------------------------------------------
 // Chat Completion Response
 // ---------------------------------------------------------------------------
 
-export interface ChatCompletion {
+export interface ChatCompletion extends GatewayMetadata {
   id: string;
   object: string;
   created: number;
   model: string;
   choices: Choice[];
   usage: Usage | null;
-  /** Ferro-specific: trace ID from x-ferro-trace-id header */
-  trace_id?: string;
-  /** Ferro-specific: provider that handled the request */
-  provider?: string;
-  /** Ferro-specific: gateway latency in milliseconds */
-  latency_ms?: number;
+  /** Provider-specific extras the gateway chose to surface. */
+  provider_metadata?: Record<string, unknown>;
 }
 
 export interface Choice {
@@ -93,6 +108,7 @@ export interface Choice {
 export interface ChatMessage {
   role: string;
   content: string | null;
+  reasoning_content?: string;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   name?: string;
@@ -109,12 +125,13 @@ export interface ToolCall {
 // Streaming
 // ---------------------------------------------------------------------------
 
-export interface ChatCompletionChunk {
+export interface ChatCompletionChunk extends GatewayMetadata {
   id: string;
   object: string;
   created: number;
   model: string;
   choices: StreamChoice[];
+  /** Present only on the terminal chunk, and only with `stream_options.include_usage`. */
   usage?: Usage | null;
 }
 
@@ -128,6 +145,7 @@ export interface StreamChoice {
 export interface StreamDelta {
   role?: string;
   content?: string | null;
+  reasoning_content?: string;
   tool_calls?: ToolCall[];
 }
 
@@ -142,12 +160,6 @@ export interface Usage {
   reasoning_tokens?: number;
   cache_read_tokens?: number;
   cache_write_tokens?: number;
-  /** Ferro-specific: estimated cost in USD */
-  cost_usd?: number;
-  /** Ferro-specific: whether response was served from cache */
-  cache_hit?: boolean;
-  /** Ferro-specific: which provider handled the request */
-  provider?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +174,7 @@ export interface EmbeddingCreateParams {
   user?: string;
 }
 
-export interface EmbeddingResponse {
+export interface EmbeddingResponse extends GatewayMetadata {
   object: string;
   data: EmbeddingData[];
   model: string;
@@ -190,7 +202,7 @@ export interface ImageGenerateParams {
   user?: string;
 }
 
-export interface ImageResponse {
+export interface ImageResponse extends GatewayMetadata {
   created: number;
   data: ImageData[];
 }
@@ -205,119 +217,27 @@ export interface ImageData {
 // Models
 // ---------------------------------------------------------------------------
 
+/** Filters applied client-side over the full `/v1/models` catalog. */
 export interface ModelListParams {
+  /** Matches `owned_by`. */
   provider?: string;
+  /** Matches an entry of `capabilities[]`. */
   capability?: string;
 }
 
+/** Mirrors the gateway's `EnrichedModelInfo` (`GET /v1/models`). */
 export interface ModelInfo {
   id: string;
   object: string;
-  created?: number;
-  provider: string;
+  /** Always present; may be 0 for catalog entries. */
+  created: number;
+  owned_by: string;
+  mode?: string;
   context_window?: number;
   max_output_tokens?: number;
-  input_cost_per_token?: number;
-  output_cost_per_token?: number;
   capabilities?: string[];
   status?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Admin: Keys
-// ---------------------------------------------------------------------------
-
-export interface APIKey {
-  id: string;
-  name: string;
-  key: string;
-  scopes: string[];
-  active: boolean;
-  created_at: string;
-  expires_at?: string | null;
-  last_used_at?: string | null;
-  usage_count: number;
-  revoked_at?: string | null;
-  rotated_at?: string | null;
-}
-
-export interface CreatedAPIKey {
-  id: string;
-  name: string;
-  key: string;
-  scopes: string[];
-  active: boolean;
-  created_at: string;
-  expires_at?: string | null;
-}
-
-export interface KeyCreateParams {
-  name: string;
-  scopes?: string[];
-  expires_at?: string;
-}
-
-export interface KeyUpdateParams {
-  name?: string;
-  scopes?: string[];
-  expires_at?: string;
-  active?: boolean;
-  clear_expiration?: boolean;
-}
-
-export interface KeyUsageParams {
-  limit?: number;
-  offset?: number;
-  sort?: "usage" | "last_used";
-  active?: boolean;
-  since?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Admin: Config
-// ---------------------------------------------------------------------------
-
-export interface GatewayConfig {
-  strategy: Record<string, unknown>;
-  targets: Record<string, unknown>[];
-  plugins: Record<string, unknown>[];
-  aliases: Record<string, string>;
-  raw: Record<string, unknown>;
-}
-
-export interface ConfigHistoryEntry {
-  version: number;
-  config: Record<string, unknown>;
-  updated_at: string;
-  rolled_back_from?: number | null;
-}
-
-// ---------------------------------------------------------------------------
-// Admin: Logs
-// ---------------------------------------------------------------------------
-
-export interface LogListParams {
-  limit?: number;
-  offset?: number;
-  stage?: string;
-  provider?: string;
-  model?: string;
-  since?: string;
-}
-
-export interface LogStatsParams {
-  limit?: number;
-  since?: string;
-  stage?: string;
-  provider?: string;
-  model?: string;
-}
-
-export interface LogDeleteParams {
-  before?: string;
-  stage?: string;
-  provider?: string;
-  model?: string;
+  deprecated?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -334,3 +254,6 @@ export interface FerroClientOptions {
   /** Enable SDK debug logging. Also configurable via FERRO_LOG_LEVEL env var. */
   logLevel?: "debug" | "info" | "warn" | "error" | "none";
 }
+
+export * from "./types/admin.js";
+export * from "./types/gateway.js";

@@ -1,4 +1,5 @@
 import type { HttpClient } from "../../_internal/http.js";
+import { AuditResource } from "./audit.js";
 import { ConfigResource } from "./config.js";
 import { KeysResource } from "./keys.js";
 import { LogsResource } from "./logs.js";
@@ -11,6 +12,7 @@ export class Admin {
   readonly logs: LogsResource;
   readonly providers: ProvidersResource;
   readonly plugins: PluginsResource;
+  readonly audit: AuditResource;
 
   private readonly http: HttpClient;
 
@@ -21,6 +23,7 @@ export class Admin {
     this.logs = new LogsResource(http);
     this.providers = new ProvidersResource(http);
     this.plugins = new PluginsResource(http);
+    this.audit = new AuditResource(http);
   }
 
   async dashboard(): Promise<Record<string, unknown>> {

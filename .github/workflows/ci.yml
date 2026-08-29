@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main, development]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -15,10 +18,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18, 20, 22]
+        node-version: [20, 22, 24]
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
@@ -43,11 +48,55 @@ jobs:
       - name: Build
         run: npm run build
 
+  contract:
+    name: Contract vs AI Gateway ${{ matrix.gateway_ref }}
+    runs-on: ubuntu-latest
+    # The pinned leg is the required signal; "main" moves upstream of this
+    # repo, so a failure there must only report, never block.
+    continue-on-error: ${{ matrix.gateway_ref == 'main' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # gateway_ref is the display label (part of the required check name);
+        # checkout_ref is what is actually checked out — a commit SHA for tags.
+        include:
+          - gateway_ref: v1.4.5
+            checkout_ref: e8e4e26ddbd1dcf734722d82f02fabb50ce50037 # v1.4.5
+          - gateway_ref: main
+            checkout_ref: main
+    steps:
+      - name: Check out the SDK
+        uses: actions/checkout@v4
+        with:
+          path: sdk
+          persist-credentials: false
+      - name: Check out AI Gateway
+        uses: actions/checkout@v4
+        with:
+          repository: ferro-labs/ai-gateway
+          ref: ${{ matrix.checkout_ref }}
+          path: ai-gateway
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ai-gateway/go.mod
+      - run: npm ci
+        working-directory: sdk
+      - run: ./scripts/with-gateway.sh
+        working-directory: sdk
+        env:
+          FERRO_GATEWAY_SOURCE: ${{ github.workspace }}/ai-gateway
+
   coverage:
     runs-on: ubuntu-latest
     needs: build-and-test
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
