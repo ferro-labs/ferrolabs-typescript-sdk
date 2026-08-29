@@ -5,6 +5,8 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    // Needs a live gateway: `npm run test:contract` / scripts/with-gateway.sh.
+    exclude: ["tests/contract/**", "node_modules/**"],
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],

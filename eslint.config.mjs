@@ -18,7 +18,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["tests/**/*.ts"],
+    files: ["tests/**/*.ts", "examples/**/*.ts"],
     rules: {
       "@typescript-eslint/no-non-null-assertion": "off",
     },
@@ -28,6 +28,6 @@ export default tseslint.config(
     languageOptions: { globals: { process: "readonly", console: "readonly" } },
   },
   {
-    ignores: ["dist/", "coverage/", "*.config.*", "examples/"],
+    ignores: ["dist/", "coverage/", "*.config.*"],
   },
 );
