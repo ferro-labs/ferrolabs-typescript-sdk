@@ -84,6 +84,7 @@ echo "==> starting gateway on :$port"
 MASTER_KEY="$key" GATEWAY_CONFIG="$work/gateway.yaml" PORT="$port" \
   REQUEST_LOG_STORE_BACKEND=sqlite REQUEST_LOG_STORE_DSN="$work/requestlog.db" \
   OPENAI_API_KEY=stub-key OPENAI_BASE_URL="http://127.0.0.1:$stub_port/v1" \
+  RATE_LIMIT_RPS=0 \
   "$work/ferrogw" serve >"$work/gateway.log" 2>&1 &
 gw_pid=$!
 
