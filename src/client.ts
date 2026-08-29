@@ -6,7 +6,17 @@ import { Completions } from "./resources/completions.js";
 import { Embeddings } from "./resources/embeddings.js";
 import { Images } from "./resources/images.js";
 import { Models } from "./resources/models.js";
-import type { FerroClientOptions } from "./types.js";
+import { Moderations } from "./resources/moderations.js";
+import { Responses } from "./resources/responses.js";
+import type {
+  CapabilitiesResponse,
+  FerroClientOptions,
+  HealthResponse,
+  LiveResponse,
+  ReadyResponse,
+  RerankParams,
+  RerankResponse,
+} from "./types.js";
 import { VERSION } from "./version.js";
 
 const DEFAULT_BASE_URL = "http://localhost:8080";
@@ -18,6 +28,8 @@ export class FerroClient {
   readonly embeddings: Embeddings;
   readonly images: Images;
   readonly models: Models;
+  readonly responses: Responses;
+  readonly moderations: Moderations;
   readonly admin: Admin;
 
   private readonly http: HttpClient;
@@ -52,11 +64,45 @@ export class FerroClient {
     this.embeddings = new Embeddings(this.http);
     this.images = new Images(this.http);
     this.models = new Models(this.http);
+    this.responses = new Responses(this.http);
+    this.moderations = new Moderations(this.http);
     this.admin = new Admin(this.http);
   }
 
   get version(): string {
     return VERSION;
+  }
+
+  /** `POST /v1/rerank` (Cohere v2 shape). */
+  async rerank(params: RerankParams): Promise<RerankResponse> {
+    return this.http.request<RerankResponse>("POST", "/v1/rerank", {
+      json: params,
+      meta: true,
+    });
+  }
+
+  /** `GET /v1/capabilities` — per-provider parameter support matrix. */
+  async capabilities(): Promise<CapabilitiesResponse> {
+    return this.http.request<CapabilitiesResponse>("GET", "/v1/capabilities");
+  }
+
+  /** `GET /health` — returns the body on 200 and on 503 (degraded). */
+  async health(): Promise<HealthResponse> {
+    return this.http.request<HealthResponse>("GET", "/health", {
+      acceptStatus: [503],
+    });
+  }
+
+  /** `GET /readyz` — returns the body on 200 (`ready`) and 503 (`not_ready`). */
+  async ready(): Promise<ReadyResponse> {
+    return this.http.request<ReadyResponse>("GET", "/readyz", {
+      acceptStatus: [503],
+    });
+  }
+
+  /** `GET /livez` */
+  async live(): Promise<LiveResponse> {
+    return this.http.request<LiveResponse>("GET", "/livez");
   }
 }
 
