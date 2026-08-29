@@ -163,17 +163,22 @@ export class HttpClient {
     }
   }
 
-  async *stream(
+  /**
+   * Open an SSE response. Never retried. The caller owns the body; wrap it in
+   * `Stream` to iterate frames with the idle timeout and cancel semantics.
+   */
+  async stream(
     method: string,
     path: string,
     body: unknown,
     signal?: AbortSignal,
-  ): AsyncGenerator<string> {
+  ): Promise<Response> {
     const url = this.buildUrl(path);
-    const headers = this.buildHeaders();
+    const headers = { ...this.buildHeaders(), Accept: "text/event-stream" };
 
     this.log.debug("stream start", { method, url });
 
+    // Bounds the connection + headers phase only; Stream bounds each read.
     const timeoutController = new AbortController();
     const timeoutId = setTimeout(
       () => timeoutController.abort(),
@@ -193,7 +198,6 @@ export class HttpClient {
         signal: combinedSignal,
       });
     } catch (error) {
-      clearTimeout(timeoutId);
       if (this.isAbortError(error)) {
         if (signal?.aborted) {
           throw new FerroConnectionError("Stream aborted by caller");
@@ -205,43 +209,15 @@ export class HttpClient {
       throw new FerroConnectionError(
         `Stream connection failed: ${(error as Error).message}`,
       );
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) {
       await this.handleErrorResponse(response);
     }
 
-    if (!response.body) {
-      throw new FerroConnectionError("Response body is null");
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    try {
-      while (true) {
-        if (signal?.aborted) break;
-
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed) yield trimmed;
-        }
-      }
-
-      if (buffer.trim()) yield buffer.trim();
-    } finally {
-      reader.releaseLock();
-    }
+    return response;
   }
 
   private buildUrl(path: string, params?: Record<string, string>): string {

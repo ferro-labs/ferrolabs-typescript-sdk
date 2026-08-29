@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { FerroClient } from "../src/client.js";
 import { Stream } from "../src/streaming.js";
+import { FerroNotFoundError } from "../src/errors.js";
 import { createMockFetch } from "./helpers/mock-fetch.js";
 
 const MOCK_COMPLETION = {
@@ -185,6 +186,50 @@ describe("Completions", () => {
       });
 
       expect(result).toBeInstanceOf(Stream);
+    });
+
+    it("sends Accept: text/event-stream and exposes trace_id on the Stream", async () => {
+      const chunk = {
+        id: "c",
+        object: "chat.completion.chunk",
+        created: 1,
+        model: "gpt-4",
+        choices: [],
+      };
+      const { fetch, captured } = createMockFetch({
+        stream: [`data: ${JSON.stringify(chunk)}`, "data: [DONE]"],
+        headers: { "x-request-id": "160b75c8487ad58d5307f3d8453c5945" },
+      });
+      const client = makeClient(fetch);
+
+      const stream = await client.chat.completions.create({
+        model: "gpt-4",
+        messages: [{ role: "user", content: "Hi" }],
+        stream: true,
+        stream_options: { include_usage: true },
+      });
+
+      expect(captured[0]!.headers["Accept"]).toBe("text/event-stream");
+      expect(stream.trace_id).toBe("160b75c8487ad58d5307f3d8453c5945");
+      const chunks = [];
+      for await (const c of stream) chunks.push(c);
+      expect(chunks[0]!.trace_id).toBe("160b75c8487ad58d5307f3d8453c5945");
+    });
+
+    it("maps a streaming 4xx to a typed error before iteration", async () => {
+      const { fetch } = createMockFetch({
+        status: 404,
+        json: { error: { message: "no", code: "model_not_found" } },
+      });
+      const client = makeClient(fetch);
+
+      await expect(
+        client.chat.completions.create({
+          model: "nope",
+          messages: [{ role: "user", content: "Hi" }],
+          stream: true,
+        }),
+      ).rejects.toThrow(FerroNotFoundError);
     });
 
     it("streaming request body includes stream: true", async () => {
