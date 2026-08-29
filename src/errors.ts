@@ -47,7 +47,7 @@ export class FerroBudgetExceededError extends FerroAPIError {
 /** 403 `insufficient_scope` — the key lacks the scope for this route. */
 export class FerroPermissionError extends FerroAPIError {
   constructor(message: string, options?: SubclassOptions) {
-    super(message, { code: "permission_error", ...options, status: 403 });
+    super(message, { code: "insufficient_scope", ...options, status: 403 });
     this.name = "FerroPermissionError";
   }
 }

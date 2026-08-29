@@ -20,7 +20,7 @@ export interface HealthResponse {
 
 /** `GET /readyz` — 200 `ready` or 503 `not_ready` with a `reason`. */
 export interface ReadyResponse {
-  status: "ready" | "not_ready" | string;
+  status: "ready" | "not_ready";
   reason?: string;
   providers?: { name: string; circuit: string }[];
   targets?: { name: string; routable: boolean }[];
@@ -96,8 +96,8 @@ export interface RerankResponse extends GatewayMetadata {
 
 export interface ModerationCreateParams {
   input: string | string[];
-  /** ai-gateway v1.4.5 rejects a request without one (400 `invalid_request`). */
-  model?: string;
+  /** Required: ai-gateway v1.4.5 rejects a request without one (400 `invalid_request`). */
+  model: string;
 }
 
 export interface ModerationResponse extends GatewayMetadata {

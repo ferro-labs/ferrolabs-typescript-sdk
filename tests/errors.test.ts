@@ -128,14 +128,15 @@ describe("FerroBudgetExceededError", () => {
 });
 
 describe("FerroPermissionError", () => {
-  it("defaults to 403 permission_error and keeps a gateway code", () => {
-    const err = new FerroPermissionError("nope", {
-      code: "insufficient_scope",
-    });
+  it("defaults to 403 insufficient_scope and keeps a gateway code", () => {
+    const err = new FerroPermissionError("nope");
     expect(err.name).toBe("FerroPermissionError");
     expect(err.status).toBe(403);
     expect(err.code).toBe("insufficient_scope");
     expect(err).toBeInstanceOf(FerroAPIError);
+    expect(
+      new FerroPermissionError("nope", { code: "key_disabled" }).code,
+    ).toBe("key_disabled");
   });
 });
 

@@ -110,7 +110,7 @@ describe("rerank", () => {
 });
 
 describe("moderations", () => {
-  it("POSTs /v1/moderations", async () => {
+  it("POSTs /v1/moderations with the required model", async () => {
     const body = { id: "m", model: "omni-moderation-latest", results: [] };
     const { fetch, captured } = createMockFetch({
       json: body,
