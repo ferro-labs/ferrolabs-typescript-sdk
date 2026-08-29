@@ -18,7 +18,12 @@ const response = await client.embeddings.create({
 });
 
 for (const item of response.data) {
-  console.log(`[${item.index}] dimensions: ${item.embedding.length}, first 5: [${item.embedding.slice(0, 5).map((v) => v.toFixed(4)).join(", ")}...]`);
+  console.log(
+    `[${item.index}] dimensions: ${item.embedding.length}, first 5: [${item.embedding
+      .slice(0, 5)
+      .map((v) => v.toFixed(4))
+      .join(", ")}...]`,
+  );
 }
 
 console.log(`\nModel: ${response.model}`);

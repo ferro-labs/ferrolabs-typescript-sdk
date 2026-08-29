@@ -18,8 +18,15 @@ const tools: Tool[] = [
       parameters: {
         type: "object",
         properties: {
-          location: { type: "string", description: "City and state, e.g. San Francisco, CA" },
-          unit: { type: "string", enum: ["celsius", "fahrenheit"], description: "Temperature unit" },
+          location: {
+            type: "string",
+            description: "City and state, e.g. San Francisco, CA",
+          },
+          unit: {
+            type: "string",
+            enum: ["celsius", "fahrenheit"],
+            description: "Temperature unit",
+          },
         },
         required: ["location"],
       },

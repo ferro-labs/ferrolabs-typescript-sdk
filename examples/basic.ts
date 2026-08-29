@@ -17,13 +17,14 @@ const response = await client.chat.completions.create({
 
 console.log("Provider:", response.provider);
 console.log("Model:", response.model);
+console.log("Trace ID:", response.trace_id); // X-Request-ID — grep it in gateway logs
 console.log();
 console.log(response.choices[0]?.message.content);
 
 if (response.usage) {
   console.log();
   console.log(`Tokens: ${response.usage.total_tokens}`);
-  if (response.usage.cost_usd !== undefined) {
-    console.log(`Cost: $${response.usage.cost_usd.toFixed(6)}`);
-  }
+}
+if (response.gateway_overhead_ms !== undefined) {
+  console.log(`Gateway overhead: ${response.gateway_overhead_ms}ms`);
 }

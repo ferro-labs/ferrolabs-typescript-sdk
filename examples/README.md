@@ -4,7 +4,7 @@ Runnable examples demonstrating the Ferro Labs TypeScript SDK.
 
 ## Prerequisites
 
-- Node.js 18+ with [tsx](https://github.com/privatenumber/tsx) (`npm install -g tsx`)
+- Node.js 20+ with [tsx](https://github.com/privatenumber/tsx) (`npm install -g tsx`)
 - A running [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway) instance
 - An API key: `export FERRO_API_KEY=sk-ferro-...`
 
