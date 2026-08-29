@@ -53,6 +53,9 @@ jobs:
             exit 1
           fi
 
+      # npm trusted publishing (OIDC): the npmjs.com package must list this
+      # repository + workflow as a trusted publisher. No NPM_TOKEN is used;
+      # setup-node exports a placeholder NODE_AUTH_TOKEN that npm >= 11.5.1
+      # ignores in favour of the GitHub OIDC token (id-token: write above).
+      - run: npm install -g npm@latest
       - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
