@@ -397,13 +397,13 @@ const client = new FerroClient({
   apiKey: "sk-ferro-...", // or FERRO_API_KEY env var
   baseUrl: "http://localhost:8080", // or FERRO_BASE_URL env var
   timeout: 120_000, // ms; connect + response, and the stream idle timeout (default: 120,000)
-  maxRetries: 2, // retries on network errors and 408/429/5xx (default: 2)
+  maxRetries: 2, // network errors and 429 always; 408/5xx/timeouts for idempotent methods (default: 2)
   defaultHeaders: { "x-env": "prod" }, // merged into every request
   fetch: customFetchFn, // bring your own fetch (testing, polyfill)
 });
 ```
 
-**Retries** cover network errors (DNS failures, connection refused, timeouts) and HTTP `408`, `429`, `500`, `502`, `503`, `504`. Each retry waits for the server's `Retry-After` (seconds, capped at 30 s) when present, otherwise full-jitter exponential backoff from 500 ms capped at 8 s — the same policy the gateway uses upstream. Other 4xx propagate immediately as typed exceptions. Streaming requests are never retried. `defaultHeaders` cannot override `Authorization`.
+**Retries** depend on whether the request can safely be sent twice. For every method the SDK retries a network failure that happens before any response (DNS failure, connection refused, reset) and HTTP `429` — in both cases the gateway did not process the request. HTTP `408`, `500`, `502`, `503`, `504` and the SDK's own per-attempt timeout are retried only for idempotent methods (`GET`, `HEAD`, `PUT`, `DELETE`, `OPTIONS`): `fetch` cannot tell a connect timeout from a read timeout, so a `POST` (chat, embeddings, images, responses, rerank, moderations, admin creates) that times out or gets a 5xx fails immediately rather than risk running twice. Each retry waits for the server's `Retry-After` (seconds, capped at 30 s) when present, otherwise full-jitter exponential backoff from 500 ms capped at 8 s — the same policy the gateway uses upstream. Other 4xx propagate immediately as typed exceptions. Streaming requests are never retried. `defaultHeaders` cannot override `Authorization`.
 
 **Bring-your-own fetch** lets you use a custom implementation for testing, proxies, or runtime polyfills:
 

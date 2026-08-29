@@ -19,6 +19,7 @@ contract suite. Requires `ai-gateway >= v1.4.0` and Node.js 20+.
 - The client identifier header is `X-Gateway-Client` (was `X-Ferro-Client`). Legacy `x-trace-id` / `x-ferro-request-id` fallbacks are gone; `trace_id` comes from `X-Request-ID` only.
 - `engines.node` is `>=20`; Node 18 (EOL) is no longer supported. `@langchain/core` peer range is `>=0.3.0 <2.0.0`.
 - Sourcemaps are no longer shipped (they pointed at `src/`, which is not in the package).
+- A `POST` that hits the client timeout is no longer retried (0.2.x retried every timeout). With `fetch` a read timeout is indistinguishable from a connect timeout, so re-sending could execute a chat/embeddings/images/admin request twice. Network failures before any response and HTTP 429 are still retried for every method.
 
 ### Added
 
@@ -28,7 +29,7 @@ contract suite. Requires `ai-gateway >= v1.4.0` and Node.js 20+.
 - `client.capabilities()`, `client.health()`, `client.ready()`, `client.live()` (health/ready return the JSON body on 503 too), `client.rerank()`, `client.moderations.create()`.
 - `admin.audit.list()`, `admin.providers.catalog()`, `admin.plugins.catalog()`; `admin.logs.list({ api_key_id })`; `admin.logs.stats({ buckets })`.
 - `FerroBudgetExceededError` (402 `insufficient_quota`), `FerroPermissionError` (403 `insufficient_scope`), `FerroRateLimitError.retryAfter`, `FerroStreamError.code`. Typed errors now carry the gateway's `error.code`.
-- Retries on HTTP 408/429/5xx with full-jitter exponential backoff (500 ms base, 8 s cap), honouring `Retry-After` (capped at 30 s). Previously only network errors were retried, with no delay.
+- Retries with full-jitter exponential backoff (500 ms base, 8 s cap), honouring `Retry-After` (capped at 30 s). HTTP 429 and network failures before any response are retried for every method; HTTP 408/5xx and the per-attempt timeout only for idempotent methods (`GET`, `HEAD`, `PUT`, `DELETE`, `OPTIONS`). Previously only network errors were retried, with no delay.
 - Streaming: `Accept: text/event-stream`, per-event SSE parsing (`\n\n` frames, multi-line `data:`, `event:`/`id:`/`retry:`/comments ignored, CRLF tolerated), reader cancelled on early `break`, clean `abort()`, a read-side idle timeout (rejects with `FerroConnectionError`), and mid-stream `{"error": ...}` frames mapped to `FerroStreamError`.
 - Contract suite (`tests/contract/`, `scripts/with-gateway.sh`) that boots a real `ferrogw` plus a stub upstream; CI runs it against `ai-gateway v1.4.5` (required) and `main` (reporting), and `publish.yml` runs the pinned leg before `npm publish`.
 - LangChain adapter tested against `@langchain/core` 1.x; streamed `AIMessageChunk`s carry `response_metadata: { trace_id, provider }`.

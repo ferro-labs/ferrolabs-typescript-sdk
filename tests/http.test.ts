@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { HttpClient, retryDelay } from "../src/_internal/http.js";
+import { HttpClient, retryDelay, shouldRetry } from "../src/_internal/http.js";
 import { Logger } from "../src/_internal/logger.js";
 import {
   FerroAPIError,
@@ -428,17 +428,101 @@ describe("HttpClient.request", () => {
         headers: { "content-type": "application/json", ...headers },
       });
 
-    it("retries on network error up to maxRetries then throws FerroConnectionError", async () => {
+    // fetch that never settles until the SDK's own timeout aborts it.
+    function hangingFetch() {
+      return vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          }),
+      ) as unknown as typeof globalThis.fetch;
+    }
+
+    it.each(["GET", "POST"])(
+      "%s retries on network error up to maxRetries then throws FerroConnectionError",
+      async (method) => {
+        vi.useFakeTimers();
+        const networkError = new TypeError("fetch failed");
+        const fetchFn = createErrorFetch(networkError);
+        const client = makeClient(fetchFn, { maxRetries: 2 });
+
+        await expect(
+          settle(client.request(method, "/v1/models")),
+        ).rejects.toThrow(FerroConnectionError);
+        // Initial attempt + 2 retries = 3 calls
+        expect(fetchFn).toHaveBeenCalledTimes(3);
+      },
+    );
+
+    it("GET timeout is retried", async () => {
       vi.useFakeTimers();
-      const networkError = new TypeError("fetch failed");
-      const fetchFn = createErrorFetch(networkError);
-      const client = makeClient(fetchFn, { maxRetries: 2 });
+      const fetchFn = hangingFetch();
+      const client = makeClient(fetchFn, { maxRetries: 2, timeout: 50 });
 
       await expect(settle(client.request("GET", "/v1/models"))).rejects.toThrow(
-        FerroConnectionError,
+        /timed out after 50ms/,
       );
-      // Initial attempt + 2 retries = 3 calls
       expect(fetchFn).toHaveBeenCalledTimes(3);
+    });
+
+    it("POST timeout is not retried", async () => {
+      vi.useFakeTimers();
+      const fetchFn = hangingFetch();
+      const client = makeClient(fetchFn, { maxRetries: 2, timeout: 50 });
+
+      await expect(
+        settle(client.request("POST", "/v1/chat/completions")),
+      ).rejects.toThrow(FerroConnectionError);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("POST 500 is not retried", async () => {
+      const fetchFn = sequence(() =>
+        jsonResponse(500, { error: { message: "boom" } }),
+      );
+      const client = makeClient(fetchFn, { maxRetries: 2 });
+
+      await expect(
+        client.request("POST", "/v1/chat/completions"),
+      ).rejects.toThrow(FerroServerError);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("POST 429 is retried and then succeeds", async () => {
+      const fetchFn = sequence(
+        () =>
+          jsonResponse(
+            429,
+            { error: { message: "slow" } },
+            { "retry-after": "0" },
+          ),
+        () => jsonResponse(200, { ok: true }),
+      );
+      const client = makeClient(fetchFn, { maxRetries: 2 });
+
+      expect(
+        await client.request<{ ok: boolean }>("POST", "/v1/chat/completions"),
+      ).toEqual({ ok: true });
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+      ["PUT", 503],
+      ["DELETE", 502],
+    ])("%s %i is retried", async (method, status) => {
+      vi.useFakeTimers();
+      const fetchFn = sequence(
+        () => jsonResponse(status, { error: { message: "transient" } }),
+        () => jsonResponse(200, { ok: true }),
+      );
+      const client = makeClient(fetchFn, { maxRetries: 1 });
+
+      expect(
+        await settle(client.request<{ ok: boolean }>(method, "/admin/keys/k")),
+      ).toEqual({ ok: true });
+      expect(fetchFn).toHaveBeenCalledTimes(2);
     });
 
     it("does not retry when maxRetries is 0", async () => {
@@ -512,6 +596,26 @@ describe("HttpClient.request", () => {
         FerroAPIError,
       );
       expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("shouldRetry", () => {
+    const abort = new DOMException("aborted", "AbortError");
+    const network = new TypeError("fetch failed");
+
+    it.each([
+      ["GET", { status: 500 }, true],
+      ["POST", { status: 500 }, false],
+      ["POST", { status: 429 }, true],
+      ["POST", { status: 400 }, false],
+      ["GET", { status: 400 }, false],
+      ["get", { status: 503 }, true],
+      ["POST", { error: network }, true],
+      ["GET", { error: abort }, true],
+      ["POST", { error: abort }, false],
+      ["GET", { error: new Error("other") }, false],
+    ])("%s %o -> %s", (method, outcome, expected) => {
+      expect(shouldRetry(method, outcome)).toBe(expected);
     });
   });
 

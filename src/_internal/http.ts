@@ -13,6 +13,7 @@ import type { Logger } from "./logger.js";
 
 // Same policy as the gateway's own upstream retries.
 const RETRY_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "PUT", "DELETE", "OPTIONS"]);
 const BACKOFF_BASE_MS = 500;
 const BACKOFF_CAP_MS = 8_000;
 const RETRY_AFTER_CAP_MS = 30_000;
@@ -96,7 +97,7 @@ export class HttpClient {
             elapsed_ms: Date.now() - startTime,
           });
           if (
-            RETRY_STATUSES.has(response.status) &&
+            shouldRetry(method, { status: response.status }) &&
             attempt < this.config.maxRetries
           ) {
             await response.text().catch(() => "");
@@ -129,7 +130,10 @@ export class HttpClient {
 
         if (error instanceof FerroAPIError) throw error;
 
-        if (this.isRetryable(error) && attempt < this.config.maxRetries) {
+        if (
+          shouldRetry(method, { error }) &&
+          attempt < this.config.maxRetries
+        ) {
           this.log.warn("request retryable error", {
             method,
             url,
@@ -140,7 +144,7 @@ export class HttpClient {
           continue;
         }
 
-        if (this.isAbortError(error)) {
+        if (isAbortError(error)) {
           this.log.error("request timeout", {
             method,
             url,
@@ -198,7 +202,7 @@ export class HttpClient {
         signal: combinedSignal,
       });
     } catch (error) {
-      if (this.isAbortError(error)) {
+      if (isAbortError(error)) {
         if (signal?.aborted) {
           throw new FerroConnectionError("Stream aborted by caller");
         }
@@ -293,19 +297,36 @@ export class HttpClient {
         });
     }
   }
+}
 
-  private isRetryable(error: unknown): boolean {
-    if (error instanceof TypeError) return true;
-    if (this.isAbortError(error)) return true;
-    return false;
-  }
+function isAbortError(error: unknown): boolean {
+  return (
+    error instanceof DOMException ||
+    (error instanceof Error && error.name === "AbortError")
+  );
+}
 
-  private isAbortError(error: unknown): boolean {
-    return (
-      error instanceof DOMException ||
-      (error instanceof Error && error.name === "AbortError")
-    );
+/**
+ * Whether a failed attempt may be re-sent. Pass either the response `status`
+ * or the `error` thrown by `fetch`.
+ *
+ * - 429 and a network failure before any response: retried for every method —
+ *   the gateway did not process the request.
+ * - 408/5xx and the SDK's own per-attempt timeout: idempotent methods only.
+ *   `fetch` cannot tell a connect timeout from a read timeout, so a POST that
+ *   timed out may already have been executed.
+ */
+export function shouldRetry(
+  method: string,
+  outcome: { status?: number; error?: unknown },
+): boolean {
+  const idempotent = IDEMPOTENT_METHODS.has(method.toUpperCase());
+  if (outcome.status !== undefined) {
+    if (outcome.status === 429) return true;
+    return idempotent && RETRY_STATUSES.has(outcome.status);
   }
+  if (outcome.error instanceof TypeError) return true;
+  return idempotent && isAbortError(outcome.error);
 }
 
 /**
