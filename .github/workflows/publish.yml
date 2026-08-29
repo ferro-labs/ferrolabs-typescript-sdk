@@ -14,14 +14,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # A release must pass the contract suite against the pinned gateway.
       - name: Check out AI Gateway (pinned)
         uses: actions/checkout@v4
         with:
           repository: ferro-labs/ai-gateway
-          ref: v1.4.5
+          ref: e8e4e26ddbd1dcf734722d82f02fabb50ce50037 # v1.4.5
           path: .gateway
+          persist-credentials: false
       - uses: actions/setup-go@v5
         with:
           go-version-file: .gateway/go.mod
