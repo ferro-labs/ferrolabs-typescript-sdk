@@ -86,6 +86,7 @@ export class Stream<T> implements AsyncIterable<T> {
         buffer = result.done ? "" : (frames.pop() ?? "");
 
         for (const frame of frames) {
+          if (this.controller.signal.aborted) return;
           const payload = dataOf(frame);
           if (payload === undefined) continue;
           if (payload.trim() === "[DONE]") return;

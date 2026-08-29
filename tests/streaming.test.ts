@@ -178,6 +178,23 @@ describe("Stream", () => {
       expect(cancel).toHaveBeenCalled();
     });
 
+    it("abort() stops yielding frames already buffered from the same read", async () => {
+      // Two frames arrive in ONE read; abort after the first must drop the second.
+      const { response, cancel } = sseResponse(
+        [frame({ id: "1" }) + frame({ id: "2" })],
+        { keepOpen: true },
+      );
+      const stream = new Stream<{ id: string }>(response);
+
+      const seen: string[] = [];
+      for await (const chunk of stream) {
+        seen.push(chunk.id);
+        stream.abort();
+      }
+      expect(seen).toEqual(["1"]);
+      expect(cancel).toHaveBeenCalled();
+    });
+
     it("rejects with FerroConnectionError when the stream stalls past the idle timeout", async () => {
       const { response } = sseResponse([frame({ id: "1" })], {
         keepOpen: true,
