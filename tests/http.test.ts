@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { HttpClient } from "../src/_internal/http.js";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { HttpClient, retryDelay } from "../src/_internal/http.js";
 import { Logger } from "../src/_internal/logger.js";
 import {
   FerroAPIError,
@@ -324,19 +324,6 @@ describe("HttpClient.request", () => {
       );
       expect(result.status).toBe("no_providers");
     });
-
-    it("HTTP errors are NOT retried", async () => {
-      const { fetch } = createMockFetch({
-        status: 500,
-        json: { error: { message: "Internal error" } },
-      });
-      const client = makeClient(fetch, { maxRetries: 3 });
-
-      await expect(client.request("GET", "/v1/models")).rejects.toThrow(
-        FerroServerError,
-      );
-      expect(fetch).toHaveBeenCalledTimes(1);
-    });
   });
 
   describe("response metadata merging", () => {
@@ -433,12 +420,41 @@ describe("HttpClient.request", () => {
   });
 
   describe("network errors and retries", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    async function settle<T>(promise: Promise<T>): Promise<T> {
+      // Drive the backoff timers while the request is in flight.
+      const guarded = promise.catch((e: unknown) => e);
+      await vi.runAllTimersAsync();
+      const outcome = await guarded;
+      if (outcome instanceof Error) throw outcome;
+      return outcome as T;
+    }
+
+    function sequence(...responses: (() => Response | Error)[]) {
+      let call = 0;
+      return vi.fn(async () => {
+        const next = responses[Math.min(call++, responses.length - 1)]!();
+        if (next instanceof Error) throw next;
+        return next;
+      }) as unknown as typeof globalThis.fetch;
+    }
+
+    const jsonResponse = (status: number, body: unknown, headers = {}) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json", ...headers },
+      });
+
     it("retries on network error up to maxRetries then throws FerroConnectionError", async () => {
+      vi.useFakeTimers();
       const networkError = new TypeError("fetch failed");
       const fetchFn = createErrorFetch(networkError);
       const client = makeClient(fetchFn, { maxRetries: 2 });
 
-      await expect(client.request("GET", "/v1/models")).rejects.toThrow(
+      await expect(settle(client.request("GET", "/v1/models"))).rejects.toThrow(
         FerroConnectionError,
       );
       // Initial attempt + 2 retries = 3 calls
@@ -454,6 +470,84 @@ describe("HttpClient.request", () => {
         FerroConnectionError,
       );
       expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries 429 honouring Retry-After and then succeeds", async () => {
+      vi.useFakeTimers();
+      const fetchFn = sequence(
+        () =>
+          jsonResponse(
+            429,
+            { error: { message: "slow" } },
+            {
+              "retry-after": "2",
+            },
+          ),
+        () => jsonResponse(200, { ok: true }),
+      );
+      const client = makeClient(fetchFn, { maxRetries: 2 });
+
+      const pending = client.request<{ ok: boolean }>("GET", "/v1/models");
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await pending).toEqual({ ok: true });
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([408, 500, 502, 503])("retries %i with backoff", async (status) => {
+      vi.useFakeTimers();
+      const fetchFn = sequence(
+        () => jsonResponse(status, { error: { message: "transient" } }),
+        () => jsonResponse(200, { ok: true }),
+      );
+      const client = makeClient(fetchFn, { maxRetries: 1 });
+
+      expect(
+        await settle(client.request<{ ok: boolean }>("GET", "/v1/models")),
+      ).toEqual({ ok: true });
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws the typed error once retries are exhausted", async () => {
+      vi.useFakeTimers();
+      const fetchFn = sequence(() =>
+        jsonResponse(503, { error: { message: "down" } }),
+      );
+      const client = makeClient(fetchFn, { maxRetries: 2 });
+
+      await expect(settle(client.request("GET", "/v1/models"))).rejects.toThrow(
+        FerroServerError,
+      );
+      expect(fetchFn).toHaveBeenCalledTimes(3);
+    });
+
+    it.each([400, 401, 402, 403, 404])("does not retry %i", async (status) => {
+      const fetchFn = sequence(() =>
+        jsonResponse(status, { error: { message: "nope" } }),
+      );
+      const client = makeClient(fetchFn, { maxRetries: 3 });
+
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(
+        FerroAPIError,
+      );
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("retryDelay", () => {
+    it("is capped exponential with full jitter (base 500ms, cap 8s)", () => {
+      for (let i = 0; i < 50; i++) {
+        expect(retryDelay(0)).toBeLessThanOrEqual(500);
+        expect(retryDelay(1)).toBeLessThanOrEqual(1000);
+        expect(retryDelay(20)).toBeLessThanOrEqual(8000);
+        expect(retryDelay(0)).toBeGreaterThanOrEqual(0);
+      }
+    });
+
+    it("uses Retry-After when present, capped at 30s", () => {
+      expect(retryDelay(0, 7)).toBe(7000);
+      expect(retryDelay(0, 100)).toBe(30_000);
     });
   });
 });

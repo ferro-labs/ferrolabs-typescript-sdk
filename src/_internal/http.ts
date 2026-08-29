@@ -11,6 +11,12 @@ import {
 import { VERSION } from "../version.js";
 import type { Logger } from "./logger.js";
 
+// Same policy as the gateway's own upstream retries.
+const RETRY_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const BACKOFF_BASE_MS = 500;
+const BACKOFF_CAP_MS = 8_000;
+const RETRY_AFTER_CAP_MS = 30_000;
+
 export interface HttpClientConfig {
   baseUrl: string;
   apiKey: string;
@@ -89,6 +95,14 @@ export class HttpClient {
             status: response.status,
             elapsed_ms: Date.now() - startTime,
           });
+          if (
+            RETRY_STATUSES.has(response.status) &&
+            attempt < this.config.maxRetries
+          ) {
+            await response.text().catch(() => "");
+            await sleep(retryDelay(attempt, retryAfterSeconds(response)));
+            continue;
+          }
           await this.handleErrorResponse(response);
         }
 
@@ -122,6 +136,7 @@ export class HttpClient {
             attempt,
             error: (error as Error).message,
           });
+          await sleep(retryDelay(attempt));
           continue;
         }
 
@@ -315,6 +330,23 @@ export class HttpClient {
       (error instanceof Error && error.name === "AbortError")
     );
   }
+}
+
+/**
+ * Delay before retry `attempt` (0-based): `Retry-After` when the server sent
+ * one (capped at 30 s, like the gateway), else capped exponential backoff
+ * with full jitter.
+ */
+export function retryDelay(attempt: number, retryAfterSec?: number): number {
+  if (retryAfterSec !== undefined) {
+    return Math.min(retryAfterSec * 1000, RETRY_AFTER_CAP_MS);
+  }
+  const ceiling = Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** attempt);
+  return Math.random() * ceiling;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** `Retry-After` in seconds; `undefined` when absent or not a number. */
