@@ -379,7 +379,7 @@ describe("Admin Logs", () => {
 
   describe("stats", () => {
     it("calls GET /admin/logs/stats", async () => {
-      const mockStats = { total_requests: 500, avg_latency_ms: 120 };
+      const mockStats = { total_requests: 500, avg_duration_ms: 120 };
       const { fetch, captured } = createMockFetch({ json: mockStats });
       const client = makeClient(fetch);
 

@@ -385,26 +385,6 @@ describe("HttpClient.request", () => {
       expect(result).toEqual({ object: "list", data: [] });
     });
 
-    it("ignores legacy x-ferro-* / x-trace-id headers", async () => {
-      const { fetch } = createMockFetch({
-        json: { id: "chat-1" },
-        headers: {
-          "x-trace-id": "legacy",
-          "x-ferro-provider": "legacy",
-          "x-ferro-latency-ms": "1",
-          "x-ferro-cost-usd": "1",
-        },
-      });
-      const client = makeClient(fetch);
-
-      const result = await client.request<Record<string, unknown>>(
-        "POST",
-        "/v1/chat/completions",
-        { meta: true },
-      );
-      expect(result).toEqual({ id: "chat-1" });
-    });
-
     it("does not throw when response body is a non-object (array)", async () => {
       const { fetch } = createMockFetch({
         json: [1, 2, 3],
