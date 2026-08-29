@@ -4,6 +4,8 @@ import { Logger } from "../src/_internal/logger.js";
 import {
   FerroAPIError,
   FerroAuthError,
+  FerroBudgetExceededError,
+  FerroPermissionError,
   FerroRateLimitError,
   FerroNotFoundError,
   FerroServerError,
@@ -74,14 +76,31 @@ describe("HttpClient.request", () => {
       expect(captured[0]!.headers["Content-Type"]).toBe("application/json");
     });
 
-    it("sends X-Ferro-Client header with SDK version", async () => {
+    it("sends X-Gateway-Client header with SDK version", async () => {
       const { fetch, captured } = createMockFetch({ json: {} });
       const client = makeClient(fetch);
 
       await client.request("GET", "/v1/models");
-      expect(captured[0]!.headers["X-Ferro-Client"]).toMatch(
+      expect(captured[0]!.headers["X-Gateway-Client"]).toMatch(
         /^ferrolabsai-typescript\//,
       );
+    });
+
+    it("defaultHeaders cannot override Authorization", async () => {
+      const { fetch, captured } = createMockFetch({ json: {} });
+      const client = new HttpClient({
+        baseUrl: "http://localhost:8080",
+        apiKey: "sk-test",
+        timeout: 30_000,
+        maxRetries: 0,
+        defaultHeaders: { Authorization: "Bearer evil", "x-env": "prod" },
+        fetchFn: fetch,
+        logger: silentLogger,
+      });
+
+      await client.request("GET", "/v1/models");
+      expect(captured[0]!.headers["Authorization"]).toBe("Bearer sk-test");
+      expect(captured[0]!.headers["x-env"]).toBe("prod");
     });
 
     it("sends User-Agent in Node-like environments", async () => {
@@ -231,11 +250,10 @@ describe("HttpClient.request", () => {
       }
     });
 
-    it("extracts x-ferro-request-id from response headers", async () => {
+    it("carries the gateway error code on typed errors", async () => {
       const { fetch } = createMockFetch({
-        status: 400,
-        json: { error: { message: "fail" } },
-        headers: { "x-ferro-request-id": "ferro-req-id" },
+        status: 401,
+        json: { error: { message: "bad", code: "invalid_api_key" } },
       });
       const client = makeClient(fetch);
 
@@ -243,8 +261,68 @@ describe("HttpClient.request", () => {
         await client.request("GET", "/v1/models");
         expect.unreachable("should have thrown");
       } catch (err) {
-        expect((err as FerroAPIError).requestId).toBe("ferro-req-id");
+        expect(err).toBeInstanceOf(FerroAuthError);
+        expect((err as FerroAPIError).code).toBe("invalid_api_key");
       }
+    });
+
+    it("throws FerroBudgetExceededError on 402", async () => {
+      const { fetch } = createMockFetch({
+        status: 402,
+        json: { error: { message: "budget", code: "insufficient_quota" } },
+      });
+      const client = makeClient(fetch);
+
+      await expect(client.request("GET", "/v1/models")).rejects.toThrow(
+        FerroBudgetExceededError,
+      );
+    });
+
+    it("throws FerroPermissionError on 403", async () => {
+      const { fetch } = createMockFetch({
+        status: 403,
+        json: { error: { message: "scope", code: "insufficient_scope" } },
+      });
+      const client = makeClient(fetch);
+
+      try {
+        await client.request("POST", "/admin/keys");
+        expect.unreachable("should have thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(FerroPermissionError);
+        expect((err as FerroAPIError).code).toBe("insufficient_scope");
+      }
+    });
+
+    it("exposes Retry-After on FerroRateLimitError", async () => {
+      const { fetch } = createMockFetch({
+        status: 429,
+        json: { error: { message: "slow down" } },
+        headers: { "retry-after": "7" },
+      });
+      const client = makeClient(fetch);
+
+      try {
+        await client.request("GET", "/v1/models");
+        expect.unreachable("should have thrown");
+      } catch (err) {
+        expect((err as FerroRateLimitError).retryAfter).toBe(7);
+      }
+    });
+
+    it("accepts extra statuses via acceptStatus", async () => {
+      const { fetch } = createMockFetch({
+        status: 503,
+        json: { status: "no_providers" },
+      });
+      const client = makeClient(fetch);
+
+      const result = await client.request<{ status: string }>(
+        "GET",
+        "/health",
+        { acceptStatus: [503] },
+      );
+      expect(result.status).toBe("no_providers");
     });
 
     it("HTTP errors are NOT retried", async () => {
@@ -262,7 +340,7 @@ describe("HttpClient.request", () => {
   });
 
   describe("response metadata merging", () => {
-    it("merges trace_id, provider, latency_ms, and usage.cost_usd from headers", async () => {
+    it("merges trace_id, provider and gateway_overhead_ms from gateway headers", async () => {
       const { fetch } = createMockFetch({
         json: {
           id: "chat-1",
@@ -270,10 +348,9 @@ describe("HttpClient.request", () => {
           usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         },
         headers: {
-          "x-trace-id": "trace-abc",
-          "x-ferro-provider": "anthropic",
-          "x-ferro-latency-ms": "123",
-          "x-ferro-cost-usd": "0.0042",
+          "x-request-id": "85b1cf6b5b96f49d9c01966c056bfbc7",
+          "x-gateway-provider": "anthropic",
+          "x-gateway-overhead-ms": "31.062",
         },
       });
       const client = makeClient(fetch);
@@ -281,83 +358,76 @@ describe("HttpClient.request", () => {
       const result = await client.request<{
         trace_id?: string;
         provider?: string;
-        latency_ms?: number;
-        usage: { cost_usd?: number };
-      }>("POST", "/v1/chat/completions");
+        gateway_overhead_ms?: number;
+      }>("POST", "/v1/chat/completions", { meta: true });
 
-      expect(result.trace_id).toBe("trace-abc");
+      expect(result.trace_id).toBe("85b1cf6b5b96f49d9c01966c056bfbc7");
       expect(result.provider).toBe("anthropic");
-      expect(result.latency_ms).toBe(123);
-      expect(result.usage.cost_usd).toBeCloseTo(0.0042);
+      expect(result.gateway_overhead_ms).toBeCloseTo(31.062);
     });
 
-    it("prefers x-request-id over x-trace-id for trace_id", async () => {
+    it("body provider stays authoritative over the header", async () => {
+      const { fetch } = createMockFetch({
+        json: { id: "chat-1", provider: "openai" },
+        headers: { "x-gateway-provider": "anthropic" },
+      });
+      const client = makeClient(fetch);
+
+      const result = await client.request<{ provider?: string }>(
+        "POST",
+        "/v1/chat/completions",
+        { meta: true },
+      );
+      expect(result.provider).toBe("openai");
+    });
+
+    it("does not merge without meta (catalog/admin bodies)", async () => {
+      const { fetch } = createMockFetch({
+        json: { object: "list", data: [] },
+        headers: {
+          "x-request-id": "abc",
+          "x-gateway-provider": "openai",
+        },
+      });
+      const client = makeClient(fetch);
+
+      const result = await client.request<Record<string, unknown>>(
+        "GET",
+        "/v1/models",
+      );
+      expect(result).toEqual({ object: "list", data: [] });
+    });
+
+    it("ignores legacy x-ferro-* / x-trace-id headers", async () => {
       const { fetch } = createMockFetch({
         json: { id: "chat-1" },
         headers: {
-          "x-request-id": "req-primary",
-          "x-trace-id": "trace-secondary",
+          "x-trace-id": "legacy",
+          "x-ferro-provider": "legacy",
+          "x-ferro-latency-ms": "1",
+          "x-ferro-cost-usd": "1",
         },
       });
       const client = makeClient(fetch);
 
-      const result = await client.request<{ trace_id?: string }>(
+      const result = await client.request<Record<string, unknown>>(
         "POST",
         "/v1/chat/completions",
+        { meta: true },
       );
-      expect(result.trace_id).toBe("req-primary");
-    });
-
-    it("body fields stay authoritative when both body and headers present", async () => {
-      const { fetch } = createMockFetch({
-        json: {
-          id: "chat-1",
-          trace_id: "body-trace",
-          provider: "openai",
-          usage: { total_tokens: 1, cost_usd: 0.01 },
-        },
-        headers: {
-          "x-trace-id": "header-trace",
-          "x-ferro-provider": "anthropic",
-          "x-ferro-cost-usd": "0.99",
-        },
-      });
-      const client = makeClient(fetch);
-
-      const result = await client.request<{
-        trace_id?: string;
-        provider?: string;
-        usage: { cost_usd?: number };
-      }>("POST", "/v1/chat/completions");
-
-      expect(result.trace_id).toBe("body-trace");
-      expect(result.provider).toBe("openai");
-      expect(result.usage.cost_usd).toBeCloseTo(0.01);
-    });
-
-    it("leaves fields absent when no metadata headers are present", async () => {
-      const { fetch } = createMockFetch({ json: { id: "chat-1" } });
-      const client = makeClient(fetch);
-
-      const result = await client.request<{
-        trace_id?: string;
-        provider?: string;
-        latency_ms?: number;
-      }>("POST", "/v1/chat/completions");
-
-      expect(result.trace_id).toBeUndefined();
-      expect(result.provider).toBeUndefined();
-      expect(result.latency_ms).toBeUndefined();
+      expect(result).toEqual({ id: "chat-1" });
     });
 
     it("does not throw when response body is a non-object (array)", async () => {
       const { fetch } = createMockFetch({
         json: [1, 2, 3],
-        headers: { "x-trace-id": "trace-abc" },
+        headers: { "x-request-id": "abc" },
       });
       const client = makeClient(fetch);
 
-      const result = await client.request<number[]>("GET", "/v1/models");
+      const result = await client.request<number[]>("GET", "/v1/models", {
+        meta: true,
+      });
       expect(result).toEqual([1, 2, 3]);
     });
   });

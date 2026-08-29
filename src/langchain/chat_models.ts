@@ -70,12 +70,6 @@ export interface FerroChatModelFields
   frequencyPenalty?: number;
   presencePenalty?: number;
   stop?: string[];
-  /** Ferro-specific: override the gateway routing strategy for this caller. */
-  routeTag?: string;
-  /** Ferro-specific: server-side prompt template ID. */
-  templateId?: string;
-  /** Ferro-specific: variables for the server-side template. */
-  templateVariables?: Record<string, unknown>;
   user?: string;
 }
 
@@ -83,10 +77,9 @@ export interface FerroChatModelFields
  * LangChain.js {@link BaseChatModel} backed by the Ferro Labs AI Gateway.
  *
  * A single instance can address any of the gateway's providers by model name
- * without swapping model classes. Every response surfaces `trace_id` (the Ferro
- * request ID propagated via the `x-trace-id` header — frozen contract since
- * `ai-gateway v1.1.0`) in `response_metadata`, the canonical join key for any
- * downstream observability bridge plugin.
+ * without swapping model classes. Every response surfaces `trace_id` (the
+ * gateway's `X-Request-ID`, equal to its OTel trace id) in `response_metadata`,
+ * the canonical join key for any downstream observability bridge plugin.
  *
  * @example
  * ```ts
@@ -107,9 +100,6 @@ export class FerroChatModel extends BaseChatModel<FerroCallOptions> {
   frequencyPenalty?: number;
   presencePenalty?: number;
   stop?: string[];
-  routeTag?: string;
-  templateId?: string;
-  templateVariables?: Record<string, unknown>;
   user?: string;
 
   private readonly clientOptions: FerroClientOptions;
@@ -124,9 +114,6 @@ export class FerroChatModel extends BaseChatModel<FerroCallOptions> {
     this.frequencyPenalty = fields.frequencyPenalty;
     this.presencePenalty = fields.presencePenalty;
     this.stop = fields.stop;
-    this.routeTag = fields.routeTag;
-    this.templateId = fields.templateId;
-    this.templateVariables = fields.templateVariables;
     this.user = fields.user;
 
     this.clientOptions = {
@@ -171,10 +158,6 @@ export class FerroChatModel extends BaseChatModel<FerroCallOptions> {
     const stop = options.stop ?? this.stop;
     if (stop && stop.length > 0) params.stop = stop;
 
-    if (this.routeTag !== undefined) params.route_tag = this.routeTag;
-    if (this.templateId !== undefined) params.template_id = this.templateId;
-    if (this.templateVariables !== undefined)
-      params.template_variables = this.templateVariables;
     if (this.user !== undefined) params.user = this.user;
 
     if (options.tools !== undefined) params.tools = options.tools;
@@ -300,15 +283,10 @@ function responseMetadata(response: ChatCompletion): Record<string, unknown> {
 
   set("model", response.model);
   set("id", response.id);
-  // ``trace_id`` is the canonical join key. Frozen via x-trace-id since
-  // ai-gateway v1.1.0; mirrored by every Ferro observability bridge plugin.
+  // ``trace_id`` is the canonical join key (X-Request-ID == OTel trace id).
   set("trace_id", response.trace_id);
   set("provider", response.provider);
-  set("latency_ms", response.latency_ms);
-  if (response.usage) {
-    set("cost_usd", response.usage.cost_usd);
-    set("cache_hit", response.usage.cache_hit);
-  }
+  set("gateway_overhead_ms", response.gateway_overhead_ms);
   return metadata;
 }
 

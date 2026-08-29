@@ -29,7 +29,6 @@ const completionPayload = {
   created: 1,
   model: "gpt-4o",
   provider: "openai",
-  latency_ms: 42,
   choices: [
     {
       index: 0,
@@ -41,8 +40,6 @@ const completionPayload = {
     prompt_tokens: 10,
     completion_tokens: 5,
     total_tokens: 15,
-    cost_usd: 0.0001,
-    cache_hit: false,
   },
 };
 
@@ -60,16 +57,22 @@ describe("FerroChatModel", () => {
   it("surfaces Ferro metadata in response_metadata", async () => {
     const { fetch } = createMockFetch({
       json: completionPayload,
-      headers: { "x-trace-id": "trace-abc" },
+      headers: {
+        "x-request-id": "85b1cf6b5b96f49d9c01966c056bfbc7",
+        "x-gateway-overhead-ms": "4.2",
+      },
     });
     const model = makeModel(fetch);
 
     const res = await model.invoke([new HumanMessage("Hi")]);
 
-    expect(res.response_metadata.trace_id).toBe("trace-abc");
-    expect(res.response_metadata.provider).toBe("openai");
-    expect(res.response_metadata.latency_ms).toBe(42);
-    expect(res.response_metadata.cost_usd).toBe(0.0001);
+    expect(res.response_metadata).toMatchObject({
+      model: "gpt-4o",
+      id: "chat-1",
+      trace_id: "85b1cf6b5b96f49d9c01966c056bfbc7",
+      provider: "openai",
+      gateway_overhead_ms: 4.2,
+    });
   });
 
   it("maps token usage into usage_metadata", async () => {

@@ -3,6 +3,8 @@ import {
   FerroError,
   FerroAPIError,
   FerroAuthError,
+  FerroBudgetExceededError,
+  FerroPermissionError,
   FerroRateLimitError,
   FerroNotFoundError,
   FerroServerError,
@@ -108,6 +110,33 @@ describe("FerroRateLimitError", () => {
     expect(err).toBeInstanceOf(FerroAPIError);
     expect(err).toBeInstanceOf(FerroError);
   });
+
+  it("stores retryAfter", () => {
+    const err = new FerroRateLimitError("rate limited", { retryAfter: 3 });
+    expect(err.retryAfter).toBe(3);
+  });
+});
+
+describe("FerroBudgetExceededError", () => {
+  it("defaults to 402 insufficient_quota", () => {
+    const err = new FerroBudgetExceededError("budget");
+    expect(err.name).toBe("FerroBudgetExceededError");
+    expect(err.status).toBe(402);
+    expect(err.code).toBe("insufficient_quota");
+    expect(err).toBeInstanceOf(FerroAPIError);
+  });
+});
+
+describe("FerroPermissionError", () => {
+  it("defaults to 403 permission_error and keeps a gateway code", () => {
+    const err = new FerroPermissionError("nope", {
+      code: "insufficient_scope",
+    });
+    expect(err.name).toBe("FerroPermissionError");
+    expect(err.status).toBe(403);
+    expect(err.code).toBe("insufficient_scope");
+    expect(err).toBeInstanceOf(FerroAPIError);
+  });
 });
 
 describe("FerroNotFoundError", () => {
@@ -184,5 +213,10 @@ describe("FerroStreamError", () => {
     const err = new FerroStreamError("stream parse failed");
     expect(err).toBeInstanceOf(FerroError);
     expect(err).not.toBeInstanceOf(FerroAPIError);
+  });
+
+  it("carries the gateway stream error code", () => {
+    const err = new FerroStreamError("boom", { code: "stream_timeout" });
+    expect(err.code).toBe("stream_timeout");
   });
 });

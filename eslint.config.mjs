@@ -24,6 +24,10 @@ export default tseslint.config(
     },
   },
   {
+    files: ["tests/contract/*.mjs"],
+    languageOptions: { globals: { process: "readonly", console: "readonly" } },
+  },
+  {
     ignores: ["dist/", "coverage/", "*.config.*", "examples/"],
   },
 );

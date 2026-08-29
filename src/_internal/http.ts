@@ -1,8 +1,10 @@
 import {
   FerroAPIError,
   FerroAuthError,
+  FerroBudgetExceededError,
   FerroConnectionError,
   FerroNotFoundError,
+  FerroPermissionError,
   FerroRateLimitError,
   FerroServerError,
 } from "../errors.js";
@@ -19,6 +21,15 @@ export interface HttpClientConfig {
   logger: Logger;
 }
 
+export interface RequestOptions {
+  json?: unknown;
+  params?: Record<string, string>;
+  /** Merge gateway headers into the body — inference responses only. */
+  meta?: boolean;
+  /** Extra statuses to treat as success (e.g. 503 from `/health`). */
+  acceptStatus?: number[];
+}
+
 export class HttpClient {
   private readonly config: HttpClientConfig;
   private readonly log: Logger;
@@ -28,21 +39,25 @@ export class HttpClient {
     this.log = config.logger;
   }
 
+  /** The configured request timeout; also the stream idle timeout. */
+  get timeout(): number {
+    return this.config.timeout;
+  }
+
   async request<T>(
     method: string,
     path: string,
-    options?: { json?: unknown; params?: Record<string, string> },
+    options?: RequestOptions,
   ): Promise<T> {
     const url = this.buildUrl(path, options?.params);
     const headers = this.buildHeaders();
     const body = options?.json ? JSON.stringify(options.json) : undefined;
 
-    let lastError: Error | undefined;
     const startTime = Date.now();
 
     this.log.debug("request start", { method, url });
 
-    for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {
+    for (let attempt = 0; ; attempt++) {
       if (attempt > 0) {
         this.log.debug("request retry", { method, url, attempt });
       }
@@ -63,7 +78,11 @@ export class HttpClient {
 
         clearTimeout(timeoutId);
 
-        if (!response.ok) {
+        const accepted =
+          response.ok ||
+          (options?.acceptStatus?.includes(response.status) ?? false);
+
+        if (!accepted) {
           this.log.warn("request error response", {
             method,
             url,
@@ -88,7 +107,9 @@ export class HttpClient {
         if (!text) return undefined as T;
 
         const parsed = JSON.parse(text);
-        return mergeResponseMetadata(parsed, response) as T;
+        return (
+          options?.meta ? mergeResponseMetadata(parsed, response) : parsed
+        ) as T;
       } catch (error) {
         clearTimeout(timeoutId);
 
@@ -101,7 +122,6 @@ export class HttpClient {
             attempt,
             error: (error as Error).message,
           });
-          lastError = error as Error;
           continue;
         }
 
@@ -126,15 +146,6 @@ export class HttpClient {
         );
       }
     }
-
-    this.log.error("request exhausted retries", {
-      method,
-      url,
-      retries: this.config.maxRetries,
-    });
-    throw (
-      lastError ?? new FerroConnectionError("Request failed after all retries")
-    );
   }
 
   async *stream(
@@ -229,11 +240,12 @@ export class HttpClient {
   }
 
   private buildHeaders(): Record<string, string> {
+    // defaultHeaders first so a caller can never shadow Authorization.
     const headers: Record<string, string> = {
+      ...this.config.defaultHeaders,
       Authorization: `Bearer ${this.config.apiKey}`,
       "Content-Type": "application/json",
-      "X-Ferro-Client": `ferrolabsai-typescript/${VERSION}`,
-      ...this.config.defaultHeaders,
+      "X-Gateway-Client": `ferrolabsai-typescript/${VERSION}`,
     };
 
     if (typeof process !== "undefined" && process.versions?.node) {
@@ -244,14 +256,10 @@ export class HttpClient {
   }
 
   private async handleErrorResponse(response: Response): Promise<never> {
-    const requestId =
-      response.headers.get("x-request-id") ??
-      response.headers.get("x-ferro-request-id") ??
-      undefined;
+    const requestId = response.headers.get("x-request-id") ?? undefined;
 
     let message: string;
     let code: string | undefined;
-    let bodyRequestId: string | undefined;
 
     try {
       const body = (await response.json()) as Record<string, unknown>;
@@ -261,36 +269,36 @@ export class HttpClient {
         (body["message"] as string) ??
         response.statusText;
       code = (error?.["code"] as string) ?? (body["code"] as string);
-      bodyRequestId =
-        (body["request_id"] as string) ?? (body["trace_id"] as string);
     } catch {
       message = (await response.text().catch(() => "")) || response.statusText;
     }
 
-    const resolvedRequestId = requestId ?? bodyRequestId;
+    const options = { code, requestId };
 
     switch (response.status) {
       case 401:
-        throw new FerroAuthError(message, { requestId: resolvedRequestId });
+        throw new FerroAuthError(message, options);
+      case 402:
+        throw new FerroBudgetExceededError(message, options);
+      case 403:
+        throw new FerroPermissionError(message, options);
+      case 404:
+        throw new FerroNotFoundError(message, options);
       case 429:
         throw new FerroRateLimitError(message, {
-          requestId: resolvedRequestId,
-        });
-      case 404:
-        throw new FerroNotFoundError(message, {
-          requestId: resolvedRequestId,
+          ...options,
+          retryAfter: retryAfterSeconds(response),
         });
       default:
         if (response.status >= 500) {
           throw new FerroServerError(message, {
+            ...options,
             status: response.status,
-            requestId: resolvedRequestId,
           });
         }
         throw new FerroAPIError(message, {
+          ...options,
           status: response.status,
-          code,
-          requestId: resolvedRequestId,
         });
     }
   }
@@ -309,63 +317,53 @@ export class HttpClient {
   }
 }
 
+/** `Retry-After` in seconds; `undefined` when absent or not a number. */
+// ponytail: delta-seconds only; the gateway never sends the HTTP-date form.
+export function retryAfterSeconds(response: Response): number | undefined {
+  const raw = response.headers.get("retry-after");
+  if (raw === null) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 /**
- * Copy gateway metadata headers into parsed response bodies.
+ * Copy the gateway's metadata headers into an inference response body.
  *
- * The gateway surfaces `trace_id`, `provider`, `cost_usd`, and `latency_ms`
- * via response headers (frozen contract since ai-gateway v1.1.0), but they are
- * not always present in the JSON body. This merges header values into the
- * parsed object so `ChatCompletion.trace_id`, `.provider`, `.latency_ms`, and
- * `usage.cost_usd` are reliably populated. Body fields stay authoritative when
- * both sources are present.
+ * - `trace_id` ← `X-Request-ID` (every response)
+ * - `provider` ← body `provider` (chat) or `X-Gateway-Provider` (pass-through)
+ * - `gateway_overhead_ms` ← `X-Gateway-Overhead-Ms` (non-streaming chat only)
+ *
+ * Body fields stay authoritative when both sources are present. Only called
+ * for inference bodies — never for `/v1/models`, `/health` or `/admin/*`.
  */
-function mergeResponseMetadata(parsed: unknown, response: Response): unknown {
+export function mergeResponseMetadata(
+  parsed: unknown,
+  response: Response,
+): unknown {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     return parsed;
   }
 
   const data = parsed as Record<string, unknown>;
 
-  const traceId =
-    response.headers.get("x-request-id") ??
-    response.headers.get("x-trace-id") ??
-    response.headers.get("x-ferro-request-id");
+  const traceId = response.headers.get("x-request-id");
   if (traceId && data["trace_id"] === undefined) {
     data["trace_id"] = traceId;
   }
 
-  const provider = response.headers.get("x-ferro-provider");
+  const provider = response.headers.get("x-gateway-provider");
   if (provider && data["provider"] === undefined) {
     data["provider"] = provider;
   }
 
-  const latencyMs = headerInt(response.headers.get("x-ferro-latency-ms"));
-  if (latencyMs !== undefined && data["latency_ms"] === undefined) {
-    data["latency_ms"] = latencyMs;
-  }
-
-  const costUsd = headerFloat(response.headers.get("x-ferro-cost-usd"));
-  if (costUsd !== undefined) {
-    const usage = data["usage"];
-    if (usage !== null && typeof usage === "object" && !Array.isArray(usage)) {
-      const usageRecord = usage as Record<string, unknown>;
-      if (usageRecord["cost_usd"] === undefined) {
-        usageRecord["cost_usd"] = costUsd;
-      }
-    }
+  const overhead = Number(response.headers.get("x-gateway-overhead-ms"));
+  if (
+    response.headers.has("x-gateway-overhead-ms") &&
+    Number.isFinite(overhead) &&
+    data["gateway_overhead_ms"] === undefined
+  ) {
+    data["gateway_overhead_ms"] = overhead;
   }
 
   return data;
-}
-
-function headerInt(value: string | null): number | undefined {
-  if (value === null || value === "") return undefined;
-  const n = Number(value);
-  return Number.isFinite(n) ? Math.trunc(n) : undefined;
-}
-
-function headerFloat(value: string | null): number | undefined {
-  if (value === null || value === "") return undefined;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : undefined;
 }

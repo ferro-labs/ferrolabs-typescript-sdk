@@ -87,9 +87,9 @@ describe("Completions", () => {
       expect(body).not.toHaveProperty("top_logprobs");
       expect(body).not.toHaveProperty("logit_bias");
       expect(body).not.toHaveProperty("user");
-      expect(body).not.toHaveProperty("template_id");
-      expect(body).not.toHaveProperty("template_variables");
-      expect(body).not.toHaveProperty("x_route_tag");
+      expect(body).not.toHaveProperty("stream_options");
+      expect(body).not.toHaveProperty("parallel_tool_calls");
+      expect(body).not.toHaveProperty("max_completion_tokens");
     });
 
     it("includes optional params when provided", async () => {
@@ -122,23 +122,44 @@ describe("Completions", () => {
       expect(body["user"]).toBe("user-1");
     });
 
-    it("sends Ferro extras: template_id, template_variables, route_tag as x_route_tag", async () => {
+    it("forwards max_completion_tokens, parallel_tool_calls, tool_choice and stream_options", async () => {
       const { fetch, captured } = createMockFetch({ json: MOCK_COMPLETION });
       const client = makeClient(fetch);
 
       await client.chat.completions.create({
         model: "gpt-4",
         messages: [{ role: "user", content: "Hi" }],
-        template_id: "tmpl-abc",
-        template_variables: { name: "Alice" },
-        route_tag: "premium",
+        max_completion_tokens: 50,
+        parallel_tool_calls: false,
+        tool_choice: "required",
+        stream_options: { include_usage: true },
       });
 
       const body = captured[0]!.body as Record<string, unknown>;
-      expect(body["template_id"]).toBe("tmpl-abc");
-      expect(body["template_variables"]).toEqual({ name: "Alice" });
-      expect(body["x_route_tag"]).toBe("premium");
-      expect(body).not.toHaveProperty("route_tag");
+      expect(body["max_completion_tokens"]).toBe(50);
+      expect(body["parallel_tool_calls"]).toBe(false);
+      expect(body["tool_choice"]).toBe("required");
+      expect(body["stream_options"]).toEqual({ include_usage: true });
+    });
+
+    it("merges trace_id, provider and gateway_overhead_ms into the completion", async () => {
+      const { fetch } = createMockFetch({
+        json: { ...MOCK_COMPLETION, provider: "openai" },
+        headers: {
+          "x-request-id": "85b1cf6b5b96f49d9c01966c056bfbc7",
+          "x-gateway-overhead-ms": "12.5",
+        },
+      });
+      const client = makeClient(fetch);
+
+      const result = await client.chat.completions.create({
+        model: "gpt-4",
+        messages: [{ role: "user", content: "Hi" }],
+      });
+
+      expect(result.trace_id).toBe("85b1cf6b5b96f49d9c01966c056bfbc7");
+      expect(result.provider).toBe("openai");
+      expect(result.gateway_overhead_ms).toBe(12.5);
     });
   });
 
