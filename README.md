@@ -36,7 +36,7 @@ const response2 = await client.chat.completions.create({
 });
 
 console.log(response.choices[0]?.message.content);
-console.log(`Handled by: ${response.provider} in ${response.latency_ms}ms`);
+console.log(`Handled by ${response.provider}, trace ${response.trace_id}`);
 ```
 
 ---
@@ -45,8 +45,8 @@ console.log(`Handled by: ${response.provider} in ${response.latency_ms}ms`);
 
 - **One API for 30 providers.** OpenAI, Anthropic, Google, Groq, Together, Mistral, Cohere, Bedrock, Vertex, Azure, and more — all via a single client.
 - **Drop-in OpenAI replacement.** The surface matches the OpenAI SDK. Change two lines and keep all your existing code.
-- **Smart routing built in.** Fallback chains, weighted load balancing, and per-request overrides via `route_tag`.
-- **Cost and provider visibility.** Every response includes `provider`, `cost_usd`, `latency_ms`, and `trace_id` — no extra calls.
+- **Smart routing built in.** Fallback chains, weighted load balancing, conditional and cost-optimised routing — configured on the gateway, transparent to the caller.
+- **Provider and trace visibility.** Every inference response carries `provider` and a `trace_id` that matches the gateway's logs and OTel traces — no extra calls.
 - **Self-hostable.** Point `baseUrl` at any [Ferro Labs AI Gateway](https://github.com/ferro-labs/ai-gateway) instance and go.
 - **TypeScript-first.** Full type inference, strict mode, zero runtime dependencies, ESM + CJS dual output.
 
@@ -64,7 +64,9 @@ console.log(`Handled by: ${response.provider} in ${response.latency_ms}ms`);
   - [Embeddings](#embeddings)
   - [Image generation](#image-generation)
   - [Model catalog](#model-catalog)
-  - [Ferro extras: templates & route tags](#ferro-extras-templates--route-tags)
+  - [Responses API](#responses-api)
+  - [Rerank and moderations](#rerank-and-moderations)
+  - [Health and capabilities](#health-and-capabilities)
 - [Observability](#observability)
 - [Configuration](#configuration)
 - [Error handling](#error-handling)
@@ -89,7 +91,9 @@ pnpm add @ferro-labs-ai/sdk
 yarn add @ferro-labs-ai/sdk
 ```
 
-Requires **Node.js 18+** (also works in Bun, Deno, and modern browsers). **Zero runtime dependencies** — uses native `fetch`.
+Requires **Node.js 20+** (also works in Bun, Deno, and modern browsers). **Zero runtime dependencies** — uses native `fetch`.
+
+**Compatibility:** `@ferro-labs-ai/sdk 0.3.x` ↔ `ai-gateway ≥ v1.4.0`. Every release is verified against the pinned gateway by the [contract suite](#development).
 
 ---
 
@@ -155,10 +159,11 @@ const ferro = createOpenAI({
 ### LangChain.js
 
 The SDK ships a native `FerroChatModel` via the `@ferro-labs-ai/sdk/langchain`
-sub-export. It surfaces Ferro metadata (`trace_id`, `provider`, `latency_ms`,
-`cost_usd`) in `response_metadata` — the canonical join key for observability
-bridges — which the generic `ChatOpenAI` adapter cannot expose. Install
-`@langchain/core` (an optional peer dependency) alongside the SDK.
+sub-export. It surfaces gateway metadata (`trace_id`, `provider`,
+`gateway_overhead_ms`) in `response_metadata` — the canonical join key for
+observability bridges — which the generic `ChatOpenAI` adapter cannot expose.
+Install `@langchain/core` 0.3 or 1.x (an optional peer dependency) alongside
+the SDK.
 
 ```typescript
 import { FerroChatModel } from "@ferro-labs-ai/sdk/langchain";
@@ -217,9 +222,12 @@ const response = await client.chat.completions.create({
 });
 
 console.log(response.choices[0]?.message.content);
-console.log(`Cost: $${response.usage?.cost_usd?.toFixed(6)}`);
-console.log(`Provider: ${response.provider}`);
+console.log(`Provider: ${response.provider} | tokens: ${response.usage?.total_tokens}`);
 ```
+
+`max_completion_tokens` supersedes `max_tokens` (both are accepted), and
+`parallel_tool_calls`, `seed`, `response_format` and `tool_choice`
+(`"auto" | "none" | "required" | { type: "function", ... }`) are forwarded as-is.
 
 ### Streaming
 
@@ -228,13 +236,23 @@ const stream = await client.chat.completions.create({
   model: "claude-3-5-sonnet-20241022",
   messages: [{ role: "user", content: "Write a haiku about Go performance." }],
   stream: true,
+  stream_options: { include_usage: true }, // ask for a terminal usage chunk
 });
+
+console.log(`trace ${stream.trace_id}`); // available before the first chunk
 
 for await (const chunk of stream) {
   const content = chunk.choices[0]?.delta?.content;
   if (content) process.stdout.write(content);
+  if (chunk.usage) console.log(`\n${chunk.usage.total_tokens} tokens`);
 }
 ```
+
+Breaking out of the loop (or calling `stream.abort()`) cancels the underlying
+request. A stream that stalls for longer than the client `timeout` rejects
+with `FerroConnectionError`; a mid-stream gateway error frame rejects with
+`FerroStreamError` carrying the gateway's `code`. Streaming requests are
+never retried.
 
 ### Embeddings
 
@@ -264,65 +282,94 @@ console.log(response.data[0]?.url);
 ### Model catalog
 
 ```typescript
-// Browse all 2,500+ models
+// Every model the gateway can route right now (GET /v1/models)
 const models = await client.models.list();
 
-// Filter by provider
-const anthropicModels = await client.models.list({ provider: "anthropic" });
+// Filters are applied client-side over that catalog — the gateway ignores
+// query parameters on /v1/models.
+const anthropicModels = await client.models.list({ provider: "anthropic" }); // matches owned_by
+const visionModels = await client.models.list({ capability: "vision" });     // matches capabilities[]
+const gptModels = await client.models.search("gpt");                          // substring on id
 
-// Filter by capability
-const visionModels = await client.models.list({ capability: "vision" });
-
-// Pricing for a specific model
+// A catalog lookup — never a request to /v1/models/{id}. Throws
+// FerroNotFoundError (code "model_not_found") when the id is not listed.
 const info = await client.models.retrieve("gpt-4o");
-console.log(`Context window: ${info.context_window?.toLocaleString()} tokens`);
+console.log(info.owned_by, info.mode, info.context_window, info.capabilities);
 ```
 
-### Ferro extras: templates & route tags
+Each entry mirrors the gateway's `EnrichedModelInfo`: `id`, `object`, `created`,
+`owned_by`, and optionally `mode`, `context_window`, `max_output_tokens`,
+`capabilities[]`, `status`, `deprecated`. There are no pricing fields.
 
-The SDK passes two Ferro-specific fields on `chat.completions.create(...)`:
-
-**`template_id` + `template_variables`** — render a server-side prompt template at request time:
+### Responses API
 
 ```typescript
-const response = await client.chat.completions.create({
-  model: "gpt-4o",
-  messages: [{ role: "user", content: "I can't log in" }],
-  template_id: "support-agent",
-  template_variables: {
-    product: "Acme SaaS",
-    plan: "Pro",
-    date: "2026-04-28",
-  },
+const res = await client.responses.create({
+  model: "gpt-4o-mini",
+  input: "Summarise the plot of Dune in one sentence.",
+});
+console.log(res.output, res.provider, res.trace_id);
+
+// id-routed calls need `responses_target` in the gateway config (501 otherwise)
+const again = await client.responses.retrieve(res.id);
+await client.responses.delete(res.id);
+```
+
+Non-streaming only in 0.3.x. The `Response` type is intentionally loose (index
+signature) because the gateway relays the provider body verbatim.
+
+### Rerank and moderations
+
+```typescript
+const ranked = await client.rerank({
+  model: "rerank-v3.5",
+  query: "best gateway for LLM routing",
+  documents: ["Ferro Labs AI Gateway", "A recipe for pancakes"],
+  top_n: 1,
+});
+
+const verdict = await client.moderations.create({
+  model: "omni-moderation-latest", // required by ai-gateway v1.4.x
+  input: "some user text",
 });
 ```
 
-**`route_tag`** — override the routing strategy for a single request:
+### Health and capabilities
 
 ```typescript
-const response = await client.chat.completions.create({
-  model: "gpt-4o",
-  messages: [{ role: "user", content: "Hello" }],
-  route_tag: "low-cost", // forces fallback to cheaper providers
-});
+const health = await client.health();   // GET /health   (body returned on 200 and 503)
+const ready  = await client.ready();    // GET /readyz   (body returned on 200 and 503)
+const live   = await client.live();     // GET /livez
+const caps   = await client.capabilities(); // GET /v1/capabilities
+
+console.log(health.version, health.commit, ready.status);
+console.log(caps.providers["openai"]?.["parallel_tool_calls"]); // "forward" | "translate" | "unsupported"
 ```
 
-Both fields are silently ignored by any OpenAI-compatible backend that doesn't understand them, so it's safe to keep them in shared code paths.
+The three probes are unauthenticated on the gateway; the client still sends
+its bearer, which the gateway ignores there.
 
 ---
 
 ## Observability
 
-Every `ChatCompletion` includes fields that tell you what the gateway actually did — no extra API calls, no log scraping:
+Inference responses (`chat.completions`, `embeddings`, `images`, `responses`,
+`rerank`, `moderations`) carry gateway metadata merged from the response. Catalog,
+health and admin bodies are returned untouched.
 
-| Field | Type | Source |
-|---|---|---|
-| `response.provider` | `string` | Which upstream provider served the request (e.g. `"openai"`, `"anthropic"`) |
-| `response.trace_id` | `string` | Correlates this request with gateway logs |
-| `response.latency_ms` | `number` | End-to-end gateway latency |
-| `response.usage.cost_usd` | `number` | Computed cost in USD |
-| `response.usage.cache_hit` | `boolean` | Whether the response came from the gateway's semantic cache |
-| `response.usage.prompt_tokens` / `completion_tokens` / `total_tokens` | `number` | Standard OpenAI token counts |
+| Field | Type | Populated from | Present on |
+|---|---|---|---|
+| `response.trace_id` | `string` (32 hex) | `X-Request-ID` header — equals the gateway's OTel trace id; grep it in `/admin/logs` and your tracing backend | every response, and `Stream.trace_id` + every streamed chunk |
+| `response.provider` | `string` | body `provider` on `/v1/chat/completions`; `X-Gateway-Provider` header on `/v1/responses` and pass-through routes | non-streaming chat, responses, rerank, moderations. **Not on SSE streams** (the gateway does not set it there yet) nor on embeddings/images |
+| `response.gateway_overhead_ms` | `number` | `X-Gateway-Overhead-Ms` header — time spent inside the gateway, **not** end-to-end latency | non-streaming `/v1/chat/completions` only |
+| `response.usage.prompt_tokens` / `completion_tokens` / `total_tokens` | `number` | body | chat (streaming: terminal chunk when `stream_options.include_usage`), embeddings |
+| `response.usage.reasoning_tokens` / `cache_read_tokens` / `cache_write_tokens` | `number?` | body, when the provider reports them | chat |
+| `response.provider_metadata` | `object?` | body, provider-specific extras the gateway chose to surface | chat |
+| `message.reasoning_content` / `delta.reasoning_content` | `string?` | body, reasoning models | chat |
+
+Cost is **not** exposed to callers by the gateway — it lives in the request log
+(`admin.logs.list()` / `.stats()`), Prometheus and the OTel span. There is no
+cache-hit signal either.
 
 ```typescript
 const response = await client.chat.completions.create({
@@ -332,9 +379,12 @@ const response = await client.chat.completions.create({
 
 console.log(
   `trace=${response.trace_id} provider=${response.provider} ` +
-  `latency=${response.latency_ms}ms cost=$${response.usage?.cost_usd?.toFixed(6)}`
+  `overhead=${response.gateway_overhead_ms}ms tokens=${response.usage?.total_tokens}`
 );
 ```
+
+Every row in this table is asserted non-empty by the contract suite against a
+real gateway (`tests/contract/contract.test.ts`).
 
 ---
 
@@ -344,14 +394,14 @@ console.log(
 const client = new FerroClient({
   apiKey: "sk-ferro-...",              // or FERRO_API_KEY env var
   baseUrl: "http://localhost:8080",    // or FERRO_BASE_URL env var
-  timeout: 120_000,                    // milliseconds (default: 120,000)
-  maxRetries: 2,                       // retries on connection errors (default: 2)
+  timeout: 120_000,                    // ms; connect + response, and the stream idle timeout (default: 120,000)
+  maxRetries: 2,                       // retries on network errors and 408/429/5xx (default: 2)
   defaultHeaders: { "x-env": "prod" }, // merged into every request
   fetch: customFetchFn,               // bring your own fetch (testing, polyfill)
 });
 ```
 
-**Retries** are triggered only by network errors (DNS failures, connection refused, timeouts) — HTTP errors (4xx/5xx) propagate immediately as typed exceptions so you can handle them yourself.
+**Retries** cover network errors (DNS failures, connection refused, timeouts) and HTTP `408`, `429`, `500`, `502`, `503`, `504`. Each retry waits for the server's `Retry-After` (seconds, capped at 30 s) when present, otherwise full-jitter exponential backoff from 500 ms capped at 8 s — the same policy the gateway uses upstream. Other 4xx propagate immediately as typed exceptions. Streaming requests are never retried. `defaultHeaders` cannot override `Authorization`.
 
 **Bring-your-own fetch** lets you use a custom implementation for testing, proxies, or runtime polyfills:
 
@@ -372,6 +422,8 @@ const client = new FerroClient({
 import {
   FerroClient,
   FerroAuthError,
+  FerroBudgetExceededError,
+  FerroPermissionError,
   FerroRateLimitError,
   FerroNotFoundError,
   FerroServerError,
@@ -386,8 +438,12 @@ try {
 } catch (error) {
   if (error instanceof FerroAuthError) {
     console.error("Invalid API key — check FERRO_API_KEY");
+  } else if (error instanceof FerroBudgetExceededError) {
+    console.error("Budget exhausted (402 insufficient_quota)");
+  } else if (error instanceof FerroPermissionError) {
+    console.error("Key lacks the scope for this route (403 insufficient_scope)");
   } else if (error instanceof FerroRateLimitError) {
-    console.error("Rate limit hit — back off and retry");
+    console.error(`Rate limited — retry after ${error.retryAfter ?? "?"}s`);
   } else if (error instanceof FerroNotFoundError) {
     console.error("Model or endpoint not found");
   } else if (error instanceof FerroServerError) {
@@ -398,7 +454,17 @@ try {
 }
 ```
 
-All HTTP-level exceptions inherit from `FerroAPIError` and expose `.status`, `.code`, `.message`, and `.requestId`. `FerroConnectionError` and `FerroStreamError` inherit from `FerroError` directly.
+All HTTP-level exceptions inherit from `FerroAPIError` and expose `.status`, `.code` (the gateway's `error.code`, e.g. `invalid_api_key`, `model_not_found`, `insufficient_scope`), `.message`, and `.requestId` (the `X-Request-ID`). `FerroConnectionError` and `FerroStreamError` (which carries the stream error `code`) inherit from `FerroError` directly.
+
+| Status | Error | Typical gateway codes |
+|---|---|---|
+| 401 | `FerroAuthError` | `missing_api_key`, `invalid_api_key` |
+| 402 | `FerroBudgetExceededError` | `insufficient_quota` |
+| 403 | `FerroPermissionError` | `insufficient_scope` |
+| 404 | `FerroNotFoundError` | `model_not_found`, `not_found` |
+| 429 | `FerroRateLimitError` (`.retryAfter`) | `rate_limit_exceeded`, `provider_saturated` |
+| 5xx | `FerroServerError` | `upstream_error`, `not_implemented`, `server_error` |
+| other | `FerroAPIError` | `invalid_request`, `request_too_large`, ... |
 
 ---
 
@@ -462,23 +528,35 @@ await client.admin.config.rollback(history[history.length - 2]!.version);
 ### Request logs
 
 ```typescript
-// Recent failures
+// Recent failures (default listing is terminal rows only; stage: "all" shows every stage)
 const errors = await client.admin.logs.list({ limit: 20, stage: "on_error" });
 
-// Aggregate stats
-const stats = await client.admin.logs.stats();
+// Rows for one key, or unauthenticated ones with api_key_id: "none"
+const mine = await client.admin.logs.list({ api_key_id: "key-id" });
+
+// Aggregate stats, optionally with a time series
+const stats = await client.admin.logs.stats({ buckets: 24 });
 
 // Prune old entries
 await client.admin.logs.delete({ before: "2026-01-01T00:00:00Z" });
 ```
 
+### Audit trail
+
+```typescript
+const audit = await client.admin.audit.list({ action: "key.create", limit: 50 });
+console.log(audit.summary.total_entries, audit.data[0]?.actor, audit.data[0]?.trace_id);
+```
+
 ### Providers, plugins, dashboard
 
 ```typescript
-const providers = await client.admin.providers.list(); // registered LLM providers
-const plugins   = await client.admin.plugins.list();   // installed gateway plugins
-const dashboard = await client.admin.dashboard();       // high-level counts
-const health    = await client.admin.health();          // gateway health check
+const providers = await client.admin.providers.list();    // registered LLM providers
+const catalog   = await client.admin.providers.catalog(); // every provider this build knows + registered flag
+const plugins   = await client.admin.plugins.list();      // configured gateway plugins
+const builtins  = await client.admin.plugins.catalog();   // built-in plugins and their settings
+const dashboard = await client.admin.dashboard();         // high-level counts
+const health    = await client.admin.health();            // authenticated health (includes MCP state)
 ```
 
 ---
@@ -505,7 +583,7 @@ const response = await client.chat.completions.create({
   messages: [{ role: "user", content: "Hello, tell me a short joke." }],
 });
 console.log(response.choices[0]?.message.content);
-console.log(`Provider: ${response.provider} | Tokens: ${response.usage?.total_tokens}`);
+console.log(`Provider: ${response.provider} | Trace: ${response.trace_id}`);
 ```
 
 </details>
@@ -630,11 +708,11 @@ const client = new FerroClient();
 const models = await client.models.list();
 console.log(`Total: ${models.length} models`);
 
-const anthropic = await client.models.list({ provider: "anthropic" });
+const anthropic = await client.models.list({ provider: "anthropic" }); // client-side filter
 console.log(`Anthropic: ${anthropic.length} models`);
 
-const info = await client.models.retrieve("gpt-4o");
-console.log(`Context: ${info.context_window?.toLocaleString()} tokens`);
+const info = await client.models.retrieve("gpt-4o"); // catalog lookup, never /v1/models/{id}
+console.log(`${info.owned_by} · ${info.mode} · ${info.context_window?.toLocaleString()} tokens`);
 ```
 
 </details>
@@ -709,12 +787,18 @@ await client.admin.config.rollback(history[0]!.version);
 git clone https://github.com/ferro-labs/ferrolabs-typescript-sdk
 cd ferrolabs-typescript-sdk
 npm install
-npm run typecheck     # tsc --noEmit
+npm run typecheck     # tsc --noEmit (src + examples)
 npm test              # vitest (all HTTP is mocked — no gateway needed)
 npm run build         # tsup → dist/ (ESM + CJS + declarations)
+
+# Contract suite against a real gateway (needs Go; builds ../ai-gateway)
+FERRO_GATEWAY_SOURCE=../ai-gateway ./scripts/with-gateway.sh
 ```
 
-All 139 tests run in under a second against mocked fetch, so no network or running gateway is required.
+All 214 unit tests run in about a second against mocked fetch, so no network or
+running gateway is required. The 26 contract tests in `tests/contract/` boot a
+real `ferrogw` plus a stub upstream and assert the header/body contract this
+README describes; CI runs them against the pinned gateway tag and `main`.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
