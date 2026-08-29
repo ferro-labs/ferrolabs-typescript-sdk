@@ -1,4 +1,5 @@
 import type { HttpClient } from "../_internal/http.js";
+import { FerroError } from "../errors.js";
 import type { Response, ResponseCreateParams } from "../types.js";
 
 /**
@@ -17,6 +18,12 @@ export class Responses {
   }
 
   async create(params: ResponseCreateParams): Promise<Response> {
+    // `stream` is typed `never`; guard the untyped/JS path before any request.
+    if ((params as Record<string, unknown>)["stream"] === true) {
+      throw new FerroError(
+        "Responses streaming is not supported by this client; use chat.completions for streaming",
+      );
+    }
     return this.http.request<Response>("POST", "/v1/responses", {
       json: params,
       meta: true,

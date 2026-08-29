@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { FerroClient } from "../src/client.js";
-import { FerroServerError } from "../src/errors.js";
+import { FerroError, FerroServerError } from "../src/errors.js";
 import { createMockFetch } from "./helpers/mock-fetch.js";
 
 function makeClient(fetchFn: typeof globalThis.fetch) {
@@ -159,6 +159,20 @@ describe("responses", () => {
     expect(captured[0]!.method).toBe("POST");
     expect(captured[0]!.url).toMatch(/\/v1\/responses$/);
     expect(captured[0]!.body).toEqual({ model: "gpt-4o-mini", input: "hi" });
+  });
+
+  it("create() rejects stream: true before any request", async () => {
+    const { fetch } = createMockFetch({ json: response });
+    const client = makeClient(fetch);
+
+    await expect(
+      client.responses.create({
+        model: "gpt-4o-mini",
+        input: "hi",
+        stream: true as never,
+      }),
+    ).rejects.toThrow(FerroError);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("retrieve() GETs /v1/responses/{id}", async () => {

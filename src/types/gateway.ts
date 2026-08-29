@@ -52,6 +52,8 @@ export interface CapabilitiesResponse {
 export interface ResponseCreateParams {
   model: string;
   input: string | unknown[];
+  /** Not supported by this client; `responses.create()` throws when `true`. */
+  stream?: never;
   instructions?: string;
   tools?: unknown[];
   max_output_tokens?: number;
